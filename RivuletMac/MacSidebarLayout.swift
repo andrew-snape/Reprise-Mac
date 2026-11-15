@@ -72,7 +72,7 @@ struct MacSidebarSettings: View {
             } header: {
                 Text("Plex")
             } footer: {
-                Text("Drag to change the order. Switch a row off to hide it.")
+                Text("Drag Plex rows to change their order. Switch any row off to hide it.")
                     .foregroundStyle(.secondary)
             }
             Section("Live TV") {

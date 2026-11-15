@@ -6,7 +6,7 @@ import SwiftUI
 
 /// The panes of Settings (⌘,), listed in the sidebar in this order.
 enum MacSettingsPane: String, CaseIterable, Identifiable {
-    case plex, video, liveTV, music, sidebar, general
+    case plex, video, music, liveTV, sidebar, general
 
     static let storageKey = "settingsPane"
 
@@ -57,7 +57,7 @@ struct MacSettingsView: View {
                     MacPlexAccountRow().tag(MacSettingsPane.plex)
                 }
                 Section {
-                    ForEach([MacSettingsPane.video, .liveTV, .music]) { MacSettingsSidebarLabel(pane: $0) }
+                    ForEach([MacSettingsPane.video, .music, .liveTV]) { MacSettingsSidebarLabel(pane: $0) }
                 }
                 Section {
                     ForEach([MacSettingsPane.sidebar, .general]) { MacSettingsSidebarLabel(pane: $0) }

@@ -60,6 +60,26 @@ struct MacLiveTVSettings: View {
                 .padding(.top, 8)
             }
 
+            if store.channelsError != nil || !store.epgIssues.isEmpty {
+                Section("Problems") {
+                    if let error = store.channelsError {
+                        Text(error).font(.caption).foregroundStyle(.secondary)
+                    }
+                    ForEach(store.epgIssues) { issue in
+                        Text("\(issue.sourceName): \(issue.reason)").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Section {
+                TextField("Teletext Page", value: $teletextPage, format: .number.grouping(.never))
+            } header: {
+                Text("Captions")
+            } footer: {
+                Text("Broadcasts that carry captions as teletext use this page; 0 finds it automatically. It applies from the next channel or video you start.")
+                    .foregroundStyle(.secondary)
+            }
+
             let hidden = store.channels.filter { store.isHidden($0) }
             if !hidden.isEmpty {
                 Section {
@@ -75,28 +95,6 @@ struct MacLiveTVSettings: View {
                 } footer: {
                     Button("Unhide All") { store.unhideAll() }
                         .padding(.top, 8)
-                }
-            }
-
-            Section {
-                TextField("Teletext Caption Page", value: $teletextPage, format: .number.grouping(.never))
-            } header: {
-                Text("Captions")
-            } footer: {
-                Text("Broadcasts that carry captions as teletext use this page. Use 0 to find it automatically. It applies from the next channel you tune. Caption size, colour and font follow System Settings > Accessibility > Captions.")
-                    .foregroundStyle(.secondary)
-            }
-
-            if let error = store.channelsError {
-                Section("Problems") {
-                    Text(error).font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            if !store.epgIssues.isEmpty {
-                Section("Guide") {
-                    ForEach(store.epgIssues) { issue in
-                        Text("\(issue.sourceName): \(issue.reason)").font(.caption).foregroundStyle(.secondary)
-                    }
                 }
             }
         }

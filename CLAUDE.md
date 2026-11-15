@@ -41,7 +41,7 @@ RivuletMac/
 │                       #   quit waits up to 3 s for Plex's stopped reports)
 ├── MacRootView.swift   # Sidebar shell: Home, Search, libraries, Live TV; VOD overlay
 ├── Settings/           # MacSettingsView (NavigationSplitView of MacSettingsPane: Plex, Video,
-│                       #   Live TV, Music, Sidebar, General), one file per pane, Live TV source forms
+│                       #   Music, Live TV, Sidebar, General), one file per pane, Live TV source forms
 ├── MacSupport.swift    # MacArtworkCache, channel logo, CaptionStyle.font(ofSize:), MacWindowReader
 ├── Plex/               # MacPlexSession (+Content, +Account, +Playback): the content
 │                       #   store, ported from the iOS app's IOSPlexSession; the views

@@ -27,7 +27,7 @@ struct MacGeneralSettings: View {
             } header: {
                 Text("Menu Bar")
             } footer: {
-                Text("Music and radio in the menu bar, with the cover, song and controls. Closing the window then leaves them playing there instead of quitting Rivulet. A video or channel stops when the window closes.")
+                Text("Music and radio in the menu bar, with the cover, song and controls. Closing the window then leaves them playing instead of quitting Rivulet; a video or channel still stops.")
                     .foregroundStyle(.secondary)
             }
 

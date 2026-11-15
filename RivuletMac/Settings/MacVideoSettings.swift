@@ -34,7 +34,7 @@ struct MacVideoSettings: View {
             } header: {
                 Text("Playback")
             } footer: {
-                Text("With Play Next off, Up Next waits for you at the end of an episode. The skip lengths apply to the player's buttons, the arrow keys and your keyboard's media keys.")
+                Text("With Play Next off, Up Next waits for you at the end of an episode. The skip lengths apply to the player's buttons, the arrow keys, the Playback menu and your keyboard's media keys; Live TV keeps 10 seconds. Subtitle size, colour and font follow System Settings > Accessibility > Captions.")
                     .foregroundStyle(.secondary)
             }
 
@@ -47,7 +47,7 @@ struct MacVideoSettings: View {
             } header: {
                 Text("Skipping")
             } footer: {
-                Text("Community markers fill in intros and credits Plex has not marked, from IntroDB. Only the show's IMDb ID and the episode number are sent.")
+                Text("Intros, recaps, credits and commercials Plex has marked are skipped without asking; with a switch off, a Skip button appears instead. Community markers fill in intros and credits Plex has not marked, from IntroDB. Only the show's IMDb ID and the episode number are sent.")
                     .foregroundStyle(.secondary)
             }
         }

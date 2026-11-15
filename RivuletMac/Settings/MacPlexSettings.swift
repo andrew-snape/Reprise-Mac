@@ -13,12 +13,26 @@ struct MacPlexSettings: View {
 
     var body: some View {
         Form {
-            Section("Account") {
+            Section {
                 if plex.isSignedIn {
                     LabeledContent("Signed In As", value: profiles.selectedUser?.displayName ?? plex.profileDisplayName ?? "Plex")
+                    if !profiles.usersWithRememberedPins.isEmpty {
+                        Button("Forget Saved PINs") {
+                            for user in profiles.homeUsers where profiles.hasRememberedPin(for: user) {
+                                profiles.forgetPin(for: user)
+                            }
+                        }
+                    }
                     Button("Sign Out of Plex", role: .destructive) { plex.signOut() }
                 } else {
                     Button("Sign In to Plex…") { showingSignIn = true }
+                }
+            } header: {
+                Text("Account")
+            } footer: {
+                if !profiles.usersWithRememberedPins.isEmpty {
+                    Text("Profiles with a remembered PIN open without asking.")
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -55,10 +69,5 @@ struct MacPlexSettings: View {
         } message: {
             Text("That server didn't answer. Rivulet is still using the previous one.")
         }
-    }
-
-    @ViewBuilder
-    private var qualityChoices: some View {
-        ForEach(StreamingQuality.allChoices, id: \.self) { Text($0.label).tag($0.rawValue) }
     }
 }

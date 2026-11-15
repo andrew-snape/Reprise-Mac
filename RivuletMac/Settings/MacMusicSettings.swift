@@ -17,12 +17,6 @@ struct MacMusicSettings: View {
         Form {
             Section {
                 Toggle("Loudness Levelling", isOn: $loudnessLevelling)
-            } footer: {
-                Text("Evens out volume between tracks, using the loudness analysis on your Plex server. An album played in order keeps its own quiet and loud songs. It applies from the next track.")
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
                 Picker("Crossfade", selection: $crossfade) {
                     Text("Off").tag(0)
                     Text("2 Seconds").tag(2)
@@ -31,8 +25,10 @@ struct MacMusicSettings: View {
                     Text("8 Seconds").tag(8)
                 }
                 .disabled(outputRate != MusicOutputRate.dontChange)
+            } header: {
+                Text("Playback")
             } footer: {
-                Text("Fades each song into the next. Songs that follow one another on an album still play without a gap, as they were made to. It needs Sample Rate set to Don't Change.")
+                Text("Loudness Levelling evens out volume between tracks using your Plex server's analysis; an album played in order keeps its own quiet and loud songs. Crossfade blends each song into the next, except songs that run together on an album. Both apply from the next track. Crossfade needs Sample Rate set to Don't Change.")
                     .foregroundStyle(.secondary)
             }
 
@@ -46,7 +42,7 @@ struct MacMusicSettings: View {
             } header: {
                 Text("Output")
             } footer: {
-                Text("Match Each Track sets your Mac's sound output to each song's own sample rate, so it plays without conversion. It applies to every app, and the earlier rate comes back when music stops. Bluetooth and AirPlay keep their own rate, and songs at different rates have a short gap between them.")
+                Text("Match Each Track sets your Mac's sound output to each song's sample rate, so it plays without conversion. This affects every app until music stops. Bluetooth and AirPlay keep their own rate, and a change of rate leaves a short gap.")
                     .foregroundStyle(.secondary)
             }
 
@@ -101,7 +97,7 @@ struct MacMusicSettings: View {
             } header: {
                 Text("Music Details")
             } footer: {
-                Text("When Plex has no biography, photo, cover or links, Rivulet looks for them on MusicBrainz, Wikipedia and TheAudioDB. The artist and album names, or their MusicBrainz IDs, are sent to them; nothing else is. Radio covers come from Apple's iTunes search, which is sent the song's name. Turning this off forgets what was found.")
+                Text("When Plex has no biography, photo, cover or links, Rivulet looks for them on MusicBrainz, Wikipedia and TheAudioDB. The artist and album names, or their MusicBrainz IDs, are sent to them; nothing else is. Turning this off forgets what was found. Radio song covers are looked up separately, on Apple's iTunes search, which is sent the artist and song title.")
                     .foregroundStyle(.secondary)
             }
         }
