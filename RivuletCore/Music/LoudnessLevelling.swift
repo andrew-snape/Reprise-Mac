@@ -10,7 +10,13 @@ import Foundation
 /// album's quiet songs quiet; track gain suits shuffle and radio. The player
 /// can only turn down, so a quiet track plays at full volume while loud ones
 /// come down to meet it, and no track is lifted past its peak.
+///
+/// Plex's reference is quiet (about -18 LUFS, ReplayGain's), which takes some
+/// 10 dB off a modern master. `preampDB` moves the target up to the -14 LUFS
+/// streaming services use: tracks quieter than that just play at full volume.
 nonisolated enum LoudnessLevelling {
+    static let preampDB = 4.0
+
     /// The player volume (0...1) for a track's audio stream, or 1 without analysis.
     static func volume(for stream: PlexStream?, preferAlbum: Bool) -> Float {
         guard let stream else { return 1 }
@@ -22,7 +28,7 @@ nonisolated enum LoudnessLevelling {
 
     static func volume(gain: Double?, peak: Double?) -> Float {
         guard let gain, gain.isFinite else { return 1 }
-        var linear = pow(10, gain / 20)
+        var linear = pow(10, (gain + preampDB) / 20)
         if let peak, peak.isFinite, peak > 0 { linear = min(linear, 1 / peak) }
         return Float(min(max(linear, 0), 1))
     }

@@ -205,6 +205,7 @@ from the app, the app injects it at launch, before touching the stores:
 - Loudness levelling uses Plex's `gain` / `albumGain` / `peak` on the audio
   stream (only in full metadata, so each track's source fetches it). Album gain
   for an album in order, track gain otherwise; the player can only turn down.
+  Plex's reference is about -18 LUFS; `LoudnessLevelling.preampDB` (+4) moves the target to -14.
 - **Music pages read Plex first**, from `MacPlexSession.musicDetail` (`includeGuids`,
   `includeReviews`): summary, Genre / Style / Mood / Country, critic `rating` (0-10) and
   `userRating`, `Review`, `Similar`, and the artist and album hubs from `/related`.
