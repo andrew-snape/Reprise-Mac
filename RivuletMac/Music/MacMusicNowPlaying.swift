@@ -207,7 +207,7 @@ struct MacMusicNowPlayingView: View {
                         player(for: track, artwork: artwork)
                             .frame(width: playerWidth)
                         if showsQueue {
-                            MacMusicQueueList()
+                            MacMusicSidePane()
                                 .frame(width: Self.queueWidth)
                                 .background(.black.opacity(0.18))
                         }
@@ -272,7 +272,7 @@ struct MacMusicNowPlayingView: View {
                         Text(history).font(.caption).foregroundStyle(.tertiary)
                     }
                 }
-                MacMusicScrubber()
+                MacMusicWaveformScrubber()
                     .tint(.white)
                 MacMusicTransport(size: .large)
                 HStack {
@@ -330,26 +330,36 @@ private struct MacMusicBackdrop: View {
     let track: PlexMetadata
     @Environment(MacPlexSession.self) private var plex
     @State private var tint: Color?
+    /// Plex's UltraBlur colours for the cover, when the server offers them.
+    @State private var colors: [Color]?
 
     var body: some View {
         ZStack {
-            tint ?? MacTheme.background
+            if let colors {
+                MacUltraBlurGradient(colors: colors)
+            } else {
+                tint ?? MacTheme.background
+            }
             MacPlexImage(url: plex.imageURL(path: track.squareArtPath, width: 240, height: 240))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .scaleEffect(1.4)
                 .blur(radius: 90)
                 .saturation(1.4)
-                .opacity(0.7)
+                .opacity(colors == nil ? 0.7 : 0.35)
                 .id(track.ratingKey)
                 .transition(.opacity)
             LinearGradient(colors: [.black.opacity(0.25), .black.opacity(0.6)], startPoint: .top, endPoint: .bottom)
         }
         .animation(.easeInOut(duration: 0.6), value: track.ratingKey)
         .animation(.easeInOut(duration: 0.6), value: tint)
+        .animation(.easeInOut(duration: 0.6), value: colors)
         .task(id: track.ratingKey) {
-            let color = await plex.artworkTint(of: track)
+            async let blur = plex.ultraBlurColors(of: track)
+            async let color = plex.artworkTint(of: track)
+            let (found, average) = await (blur, color)
             guard !Task.isCancelled else { return }
-            tint = color
+            colors = found
+            tint = average
         }
         .clipped()
         .ignoresSafeArea()
@@ -359,6 +369,7 @@ private struct MacMusicBackdrop: View {
 
 /// Up Next: drag to reorder, double-click to play, the menu to remove.
 struct MacMusicQueueList: View {
+    var topInset: CGFloat = 60
     @Environment(MacMusicPlayback.self) private var music
 
     var body: some View {
@@ -402,7 +413,7 @@ struct MacMusicQueueList: View {
                 .scrollContentBackground(.hidden)
             }
         }
-        .padding(.top, 60)
+        .padding(.top, topInset)
         .padding(.bottom, 12)
     }
 }

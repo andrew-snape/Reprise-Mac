@@ -76,6 +76,7 @@ final class MacPlexSession {
             self?.clearContent()
             Task { await MacMusicCache.shared.clear() }
             MacMusicRecents.shared.clear()
+            MacMusicExtrasCache.shared.clear()
         }
 
         auth.$state

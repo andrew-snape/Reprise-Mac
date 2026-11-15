@@ -945,7 +945,8 @@ class PlexNetworkManager: NSObject, @unchecked Sendable {
         timeMs: Int,
         state: String = "playing",
         duration: Int? = nil,
-        sessionIdentifier: String? = nil
+        sessionIdentifier: String? = nil,
+        extraQuery: [URLQueryItem] = []
     ) async throws -> String? {
         guard var components = URLComponents(string: "\(serverURL)/:/timeline") else {
             throw PlexAPIError.invalidURL
@@ -965,6 +966,7 @@ class PlexNetworkManager: NSObject, @unchecked Sendable {
         if let sessionIdentifier {
             queryItems.append(URLQueryItem(name: "X-Plex-Session-Identifier", value: sessionIdentifier))
         }
+        queryItems += extraQuery
 
         components.queryItems = queryItems
 

@@ -266,6 +266,24 @@ from the app, the app injects it at launch, before touching the stores:
   between consecutive tracks of one album, tracks shorter than three fades, or while the
   output sample rate follows the music. With it off the second player is never made and
   the gapless path is unchanged.
+- **Plex extras** (`PlexNetworkManager+MusicExtras`, `MacPlexSession+MusicExtras`), each held for
+  the session in `MacMusicExtrasCache` by rating key, cleared on sign-out:
+  - Lyrics: the lyric stream (`streamType` 4) in a track's full metadata, fetched from its `key`,
+    parsed by `MusicLyrics` (LRC or plain). Now Playing's side pane offers Up Next / Lyrics only
+    when the track has some; timed lines follow the song and click to seek.
+  - Waveform: `/library/streams/{id}/levels?subsample=160` (dB every 100 ms) drawn as Now
+    Playing's seek bar, a 40 dB window under the loudest point; the plain slider until then.
+  - UltraBlur: `/services/ultrablur/colors?url=<library path>` gives four corner colours, drawn
+    as a `MeshGradient` behind Now Playing (note Plex's order: TL, TR, BR, BL).
+  - History: `/status/sessions/history/all` for the library, newest first, as the library's
+    History tab. `accountID` is 1 for the server owner, the Home member's plex.tv ID otherwise,
+    and left out on a server the account does not own (Plex limits it to the caller anyway).
+  - Sonic path: `/library/sections/{id}/computePath` from the playing track to a chosen one
+    replaces Up Next ("Sonic Path to Here" in a track's menu); empty means not analysed.
+  - Play queue: the queue (current + Up Next, max 100) is mirrored 2 s after it settles into a
+    server play queue (`POST /playQueues`, `server://<machine>/com.plexapp.plugins.library/...`),
+    and every timeline carries `containerKey` and `playQueueItemID`. The local queue stays the
+    one that plays; the server copy is rebuilt, never edited, and dropped when music stops.
 - Radio refills Up Next below 5 tracks: sonically similar (`/nearest`) when the
   server has analysed the library, else random tracks from it.
 - Now Playing and the media keys: Plex title first, then music when it is

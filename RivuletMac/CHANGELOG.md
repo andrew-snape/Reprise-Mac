@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Music: lyrics in Now Playing, following the song when Plex has them timed; click a line to jump to it.
+- Music: Now Playing's seek bar shows the shape of the song.
+- Music: Now Playing's background uses Plex's own colours from the cover.
+- Music: a History tab lists every song you've played from the library, by day.
+- Music: Sonic Path to Here, in a song's menu, fills Up Next with songs that drift from what's playing to that one.
+- Music: Plex and its other apps see what's queued here.
+
 ## 0.67
 
 - Music: tracks no longer stop for half a minute when the next one starts loading or downloading (0.66 fixed this only in part).

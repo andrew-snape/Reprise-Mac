@@ -57,6 +57,9 @@ final class MacMusicPlayback {
     /// The saved queue has been looked at this launch, so saving may replace it.
     @ObservationIgnored private var hasRestored = false
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    /// The server play queue mirroring this one (`syncPlayQueue`).
+    @ObservationIgnored private var playQueue: (id: Int, keys: [String], itemIDs: [String: Int])?
+    @ObservationIgnored private var playQueueTask: Task<Void, Never>?
 
     init() {
         player.onAdvance = { [weak self] in self?.playerAdvanced(to: $0) }
@@ -108,6 +111,25 @@ final class MacMusicPlayback {
         let wasEmpty = queue.isEmpty
         queue.playNext(tracks)
         wasEmpty ? loadCurrent() : queueChanged()
+    }
+
+    /// Replaces Up Next with a sonic path from the playing track to `destination`.
+    /// Says so when the library has not been analysed.
+    func playSonicPath(to destination: PlexMetadata) {
+        guard let plex, let start = track, start.ratingKey != destination.ratingKey else { return }
+        problem = nil
+        Task {
+            var path = await plex.sonicPath(from: start, to: destination)
+            path.removeAll { $0.ratingKey == start.ratingKey }
+            guard !path.isEmpty else {
+                problem = "Plex hasn't analysed this library's sound yet."
+                return
+            }
+            if path.last?.ratingKey != destination.ratingKey { path.append(destination) }
+            radio = nil
+            queue.replaceUpNext(with: path)
+            queueChanged()
+        }
     }
 
     func addToQueue(_ tracks: [PlexMetadata]) {
@@ -337,7 +359,10 @@ final class MacMusicPlayback {
 
     /// The queued follow-on no longer matches the queue: queue the right one.
     private func queueChanged() {
-        defer { updatePrecache() }
+        defer {
+            updatePrecache()
+            syncPlayQueue()
+        }
         scheduleSave()
         refillRadioIfNeeded()
         guard let current else { return }
@@ -578,7 +603,36 @@ final class MacMusicPlayback {
     private func report(_ state: String) {
         guard !reportedStopped, let current, let plex else { return }
         let time = player.currentTime
-        Task { await plex.reportMusic(current, time: time, state: state) }
+        let extra = playQueueQuery(for: current)
+        Task { await plex.reportMusic(current, time: time, state: state, extra: extra) }
+    }
+
+    /// Mirrors the queue (the playing track and Up Next, at most 100) into a Plex
+    /// play queue a moment after it settles, so Plex's dashboard and its other apps
+    /// see it. The timeline then names the queue and the track's place in it.
+    private func syncPlayQueue() {
+        guard let plex, let current = queue.current, let currentKey = current.track.ratingKey else { return }
+        let keys = Array(([current] + queue.upNext).compactMap(\.track.ratingKey).prefix(100))
+        guard playQueue?.keys != keys else { return }
+        playQueueTask?.cancel()
+        playQueueTask = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled,
+                  let made = await plex.createPlayQueue(ratingKeys: keys, selectedKey: currentKey),
+                  !Task.isCancelled else { return }
+            var itemIDs: [String: Int] = [:]
+            for (key, id) in zip(made.ratingKeys, made.itemIDs) where itemIDs[key] == nil { itemIDs[key] = id }
+            playQueue = (made.id, keys, itemIDs)
+            if player.state == .playing || player.state == .paused {
+                report(player.state == .paused ? "paused" : "playing")
+            }
+        }
+    }
+
+    private func playQueueQuery(for source: MacMusicSource) -> [URLQueryItem] {
+        guard let playQueue, let key = source.track.ratingKey, let item = playQueue.itemIDs[key] else { return [] }
+        return [URLQueryItem(name: "containerKey", value: "/playQueues/\(playQueue.id)"),
+                URLQueryItem(name: "playQueueItemID", value: "\(item)")]
     }
 
     /// A play counted when the track got past the watched ceiling. `completed` is a
@@ -593,9 +647,14 @@ final class MacMusicPlayback {
         let time = completed ? runtime : player.currentTime
         let played = completed || (WatchProgressPolicy.progress(offsetSeconds: time, runtimeSeconds: runtime) ?? 0)
             >= WatchProgressPolicy.completionThreshold
-        if ending { plex.musicSessionID = UUID().uuidString }
+        let extra = playQueueQuery(for: current)
+        if ending {
+            plex.musicSessionID = UUID().uuidString
+            playQueueTask?.cancel()
+            playQueue = nil
+        }
         return Task {
-            if ending { await plex.reportMusic(current, time: time, state: "stopped") }
+            if ending { await plex.reportMusic(current, time: time, state: "stopped", extra: extra) }
             await plex.finishMusic(current, played: played)
         }
     }

@@ -192,6 +192,20 @@ nonisolated struct MusicQueue: Sendable {
         isAlbum = false
     }
 
+    /// Keeps what has played and the current entry; `tracks` become Up Next.
+    mutating func replaceUpNext(with tracks: [PlexMetadata]) {
+        let new = tracks.map { Entry(track: $0) }
+        guard let currentIndex else {
+            entries = new
+            self.currentIndex = new.isEmpty ? nil : 0
+            return
+        }
+        entries.replaceSubrange((currentIndex + 1)..., with: new)
+        isShuffled = false
+        unshuffledUpNext = nil
+        isAlbum = false
+    }
+
     /// Adds `tracks` after everything chosen, ahead of any radio entries.
     mutating func append(_ tracks: [PlexMetadata], isRadio: Bool = false) {
         let new = tracks.map { Entry(track: $0, isRadio: isRadio) }

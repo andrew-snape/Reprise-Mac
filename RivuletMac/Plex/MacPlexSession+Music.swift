@@ -34,7 +34,7 @@ nonisolated struct MacMusicSource: Sendable {
 
 /// What a music library page lists.
 nonisolated enum MacMusicKind: String, CaseIterable, Identifiable {
-    case artists, albums, playlists
+    case artists, albums, playlists, history
 
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
@@ -43,7 +43,7 @@ nonisolated enum MacMusicKind: String, CaseIterable, Identifiable {
         switch self {
         case .artists: 8
         case .albums: 9
-        case .playlists: nil
+        case .playlists, .history: nil
         }
     }
 }
@@ -296,7 +296,7 @@ extension MacPlexSession {
             && containers.contains((media.container ?? "").lowercased())
     }
 
-    func reportMusic(_ source: MacMusicSource, time: TimeInterval, state: String) async {
+    func reportMusic(_ source: MacMusicSource, time: TimeInterval, state: String, extra: [URLQueryItem] = []) async {
         guard let key = source.track.ratingKey else { return }
         _ = try? await network.reportProgress(
             serverURL: source.serverURL,
@@ -305,7 +305,8 @@ extension MacPlexSession {
             timeMs: Int(time * 1000),
             state: state,
             duration: source.track.duration,
-            sessionIdentifier: source.sessionID
+            sessionIdentifier: source.sessionID,
+            extraQuery: extra
         )
     }
 

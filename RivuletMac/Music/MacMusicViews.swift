@@ -48,6 +48,12 @@ struct MacMusicItemMenu: View {
             Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { music.perform(.addToQueue, on: item) }
         }
         Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") { music.perform(.radio, on: item) }
+        if item.type == "track", let playing = music.track, playing.ratingKey != item.ratingKey {
+            Button("Sonic Path to Here", systemImage: "point.topleft.down.to.point.bottomright.curvepath") {
+                music.playSonicPath(to: item)
+            }
+            .help("Up Next becomes songs that drift from what's playing to this one")
+        }
         if item.type != "playlist" { MacMusicRatingMenu(item: item) }
         if item.type == "track" || item.type == "album" {
             Section {
@@ -215,6 +221,8 @@ struct MacMusicLibraryView: View {
                 if items.isEmpty, let error {
                     MacPlexErrorView(title: "Couldn't Load Library", message: error) { await reload() }
                         .frame(maxWidth: .infinity)
+                } else if kind == .history {
+                    MacMusicHistoryList(library: library)
                 } else if items.isEmpty, !isLoading, loadedKey != nil {
                     ContentUnavailableView("Nothing Here", systemImage: library.icon)
                         .frame(maxWidth: .infinity)
@@ -232,7 +240,7 @@ struct MacMusicLibraryView: View {
                     music.startLibraryRadio(library)
                 }
                 .help("Shuffle the whole library, without end")
-                if kind != .playlists {
+                if kind != .playlists, kind != .history {
                     Picker("Sort By", selection: $sortRaw) {
                         ForEach(sorts, id: \.0) { Text($0.1).tag($0.0.rawValue) }
                     }
@@ -256,6 +264,10 @@ struct MacMusicLibraryView: View {
         total = nil
         isLoading = true
         defer { if key == queryKey { isLoading = false } }
+        guard kind != .history else {
+            loadedKey = key
+            return
+        }
         do {
             if kind == .playlists {
                 let playlists = try await plex.audioPlaylists()
@@ -278,7 +290,7 @@ struct MacMusicLibraryView: View {
     }
 
     private func loadMore() {
-        guard kind != .playlists, !isLoading, let total, items.count < total else { return }
+        guard kind != .playlists, kind != .history, !isLoading, let total, items.count < total else { return }
         let key = queryKey
         isLoading = true
         Task {
