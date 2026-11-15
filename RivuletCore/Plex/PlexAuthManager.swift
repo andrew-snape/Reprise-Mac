@@ -87,6 +87,12 @@ class PlexAuthManager: ObservableObject {
     private var serverSelectionTask: Task<Bool, Never>?
     private let userDefaults = UserDefaults.standard
 
+    /// Rank a local plex.direct (TLS) connection above local plain HTTP, and move a
+    /// saved plain-HTTP address onto one at launch. The app sets this before first
+    /// use: a laptop joins other people's networks, where a LAN address may be anyone.
+    /// A server with no working TLS address still connects over HTTP.
+    static var prefersSecureLocalConnections = false
+
     // UserDefaults keys (non-sensitive data only)
     private let usernameKey = "plexUsername"
     private let accountUserIDKey = "plexAccountUserID"
@@ -183,7 +189,9 @@ class PlexAuthManager: ObservableObject {
         let savedIsLocal = server.connections?.contains {
             $0.local && (URL(string: $0.uri)?.host == URL(string: url)?.host || url.hasPrefix($0.uri))
         } == true
-        if Self.isPlayableDirectURL(url) && (savedIsLocal || server.connections?.contains { $0.local } != true) { return }
+        let wantsTLS = Self.prefersSecureLocalConnections && url.hasPrefix("http://")
+        if !wantsTLS, Self.isPlayableDirectURL(url),
+           savedIsLocal || server.connections?.contains { $0.local } != true { return }
         guard let best = await findBestConnection(for: server, reuseLastGood: false),
               Self.isPlayableDirectURL(best),
               best != url,
@@ -484,8 +492,8 @@ class PlexAuthManager: ObservableObject {
         // Prefer local connections
         if connection.local {
             score += 500
-            // For local: prefer HTTP (avoids certificate issues)
-            if connection.protocolType == "http" { score += 50 }
+            // For local: prefer HTTP (avoids certificate issues), unless the app prefers TLS
+            if (connection.protocolType == "http") != Self.prefersSecureLocalConnections { score += 50 }
             // Docker's bridge range is also a normal LAN range (#510), so it is probed
             // after the server's other local addresses.
             if Self.looksLikeDockerBridge(connection.address) { score -= 100 }

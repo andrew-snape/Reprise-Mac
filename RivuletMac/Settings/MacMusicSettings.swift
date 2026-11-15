@@ -5,6 +5,7 @@ import SwiftUI
 
 struct MacMusicSettings: View {
     @AppStorage(MacMusicPlayback.loudnessKey) private var loudnessLevelling = true
+    @AppStorage(MacMusicPlayback.crossfadeKey) private var crossfade = 0
     @AppStorage(MusicInfoStore.enabledKey) private var onlineInfo = false
     @AppStorage(MacMusicCache.limitKey) private var cacheLimit = MacMusicCache.limitDefault
     @AppStorage(MacMusicPrecache.countKey) private var precacheCount = MacMusicPrecache.countDefault
@@ -18,6 +19,20 @@ struct MacMusicSettings: View {
                 Toggle("Loudness Levelling", isOn: $loudnessLevelling)
             } footer: {
                 Text("Evens out volume between tracks, using the loudness analysis on your Plex server. An album played in order keeps its own quiet and loud songs. It applies from the next track.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Picker("Crossfade", selection: $crossfade) {
+                    Text("Off").tag(0)
+                    Text("2 Seconds").tag(2)
+                    Text("4 Seconds").tag(4)
+                    Text("6 Seconds").tag(6)
+                    Text("8 Seconds").tag(8)
+                }
+                .disabled(outputRate != MusicOutputRate.dontChange)
+            } footer: {
+                Text("Fades each song into the next. Songs that follow one another on an album still play without a gap, as they were made to. It needs Sample Rate set to Don't Change.")
                     .foregroundStyle(.secondary)
             }
 

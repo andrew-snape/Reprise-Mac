@@ -266,6 +266,12 @@ struct MacMusicNowPlayingView: View {
                     .lineLimit(1)
                 }
                 .multilineTextAlignment(.center)
+                VStack(spacing: 4) {
+                    MacMusicStars(item: track)
+                    if let history = track.historyLine {
+                        Text(history).font(.caption).foregroundStyle(.tertiary)
+                    }
+                }
                 MacMusicScrubber()
                     .tint(.white)
                 MacMusicTransport(size: .large)

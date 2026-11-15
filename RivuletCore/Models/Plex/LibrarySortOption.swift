@@ -33,6 +33,10 @@ nonisolated enum LibrarySortOption: String, CaseIterable, Codable, CustomStringC
     case resolutionDesc = "mediaHeight:desc" // Best Quality (4K first)
     case resolutionAsc = "mediaHeight:asc"   // Lowest Quality (SD first)
 
+    // Listening history (music)
+    case lastViewedAtDesc = "lastViewedAt:desc" // Recently Played
+    case viewCountDesc = "viewCount:desc"       // Most Played
+
     // TV Shows only
     case lastEpisodeAddedDesc = "episode.addedAt:desc" // New Episodes
 
@@ -53,6 +57,10 @@ nonisolated enum LibrarySortOption: String, CaseIterable, Codable, CustomStringC
             return "Oldest Releases"
         case .ratingDesc:
             return "Highest Rated"
+        case .lastViewedAtDesc:
+            return "Recently Played"
+        case .viewCountDesc:
+            return "Most Played"
         case .resolutionDesc:
             return "Best Quality"
         case .resolutionAsc:
@@ -79,6 +87,10 @@ nonisolated enum LibrarySortOption: String, CaseIterable, Codable, CustomStringC
             return "Oldest"
         case .ratingDesc:
             return "Rating"
+        case .lastViewedAtDesc:
+            return "Played"
+        case .viewCountDesc:
+            return "Plays"
         case .resolutionDesc:
             return "4K First"
         case .resolutionAsc:

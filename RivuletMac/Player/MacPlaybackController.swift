@@ -2,6 +2,7 @@
 // Copyright (C) 2025-2026 Bain Gurley
 
 import AppKit
+import AVKit
 @preconcurrency import MediaPlayer
 import Observation
 import SwiftUI
@@ -16,6 +17,11 @@ final class MacPlaybackController {
 
     private(set) var session: MacPlexPlayback?
     private(set) var isAlwaysOnTop = false
+    private(set) var isPictureInPicturePossible = false
+    /// The picture is in its own floating window and the main window is free to browse.
+    private(set) var isPictureInPictureActive = false
+    /// A title covers the window: one is playing and is not in Picture in Picture.
+    var isPresented: Bool { session != nil && !isPictureInPictureActive }
 
     /// Needed to build sessions; the root view sets it.
     @ObservationIgnored weak var plex: MacPlexSession?
@@ -32,6 +38,13 @@ final class MacPlaybackController {
     @ObservationIgnored private var logoArtwork: (url: URL, artwork: MPMediaItemArtwork)?
     @ObservationIgnored private var videoShapeObservation: Task<Void, Never>?
     @ObservationIgnored private var hasConfiguredRemoteCommands = false
+    @ObservationIgnored private var pip: AVPictureInPictureController?
+    @ObservationIgnored private var pipDelegate: MacPictureInPictureDelegate?
+    @ObservationIgnored private var pipPossibleObservation: NSKeyValueObservation?
+    @ObservationIgnored private var pipSourceObservation: Task<Void, Never>?
+    /// Set by the restore button, so the stop that follows returns to the player
+    /// instead of ending the title.
+    @ObservationIgnored private var isRestoringFromPictureInPicture = false
     /// The last title's volume and mute; the next title starts on them.
     @ObservationIgnored private var volume: Float = 1
     @ObservationIgnored private var isMuted = false
@@ -65,9 +78,100 @@ final class MacPlaybackController {
                 self?.fitWindow(toVideo: size)
             }
         }
+        pipSourceObservation = Task { [weak self] in
+            for await _ in Observations({ player.pictureInPictureRevision }) {
+                self?.updatePictureInPicture(player.pictureInPictureSource)
+            }
+        }
+        // The Picture in Picture window re-reads paused state only when told.
+        let stateWatch = Task { [weak self] in
+            for await _ in Observations({ player.state }) {
+                self?.pip?.invalidatePlaybackState()
+            }
+        }
         observeNowPlaying(for: newSession)
+        nowPlayingObservations.append(stateWatch)
         updateRemoteCommandAvailability(for: newSession)
         Task { await newSession.begin() }
+    }
+
+    // MARK: - Picture in Picture
+
+    /// Moves the picture into the system's floating window and frees the main window.
+    /// Its restore button returns to the player; its close button ends the title.
+    func startPictureInPicture() {
+        guard let pip, pip.isPictureInPicturePossible, !pip.isPictureInPictureActive else { return }
+        if let window = MacAppDelegate.mainWindow, window.styleMask.contains(.fullScreen) {
+            window.toggleFullScreen(nil)
+        }
+        pip.startPictureInPicture()
+    }
+
+    private func updatePictureInPicture(_ source: AVPictureInPictureController.ContentSource?) {
+        guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
+        if let pip {
+            // Keep a live window through a reload's passing nil; a new layer replaces a dead one.
+            if source != nil || !pip.isPictureInPictureActive { pip.contentSource = source }
+            return
+        }
+        guard let source else { return }
+        let controller = AVPictureInPictureController(contentSource: source)
+        let delegate = MacPictureInPictureDelegate(
+            didStart: { [weak self] in self?.pictureInPictureDidStart() },
+            restore: { [weak self] in self?.isRestoringFromPictureInPicture = true },
+            didStop: { [weak self] in self?.pictureInPictureDidStop() })
+        controller.delegate = delegate
+        pipDelegate = delegate
+        pipPossibleObservation = controller.observe(\.isPictureInPicturePossible, options: [.initial, .new]) { [weak self] controller, _ in
+            let possible = controller.isPictureInPicturePossible
+            Task { @MainActor in self?.isPictureInPicturePossible = possible }
+        }
+        pip = controller
+    }
+
+    private func pictureInPictureDidStart() {
+        guard let session else { return }
+        session.player.setPictureInPictureActive(true)
+        session.pane = nil
+        setAlwaysOnTop(false)
+        // The browsing layout takes the window back, at its own sizes.
+        MacAppDelegate.mainWindow?.contentResizeIncrements = NSSize(width: 1, height: 1)
+        isPictureInPictureActive = true
+    }
+
+    private func pictureInPictureDidStop() {
+        let restoring = isRestoringFromPictureInPicture
+        isRestoringFromPictureInPicture = false
+        guard isPictureInPictureActive, let session else { return }
+        session.player.setPictureInPictureActive(false)
+        isPictureInPictureActive = false
+        // Anything withheld while the window was up.
+        pip?.contentSource = session.player.pictureInPictureSource
+        guard restoring else {
+            // The floating window's close button.
+            end()
+            return
+        }
+        MacAppDelegate.showMainWindow()
+        let size = session.player.videoSize
+        if size.width > 0, size.height > 0 {
+            fitWindow(toVideo: size)
+        } else {
+            MacAppDelegate.mainWindow?.contentAspectRatio = NSSize(width: 16, height: 9)
+        }
+    }
+
+    private func endPictureInPicture() {
+        pipSourceObservation?.cancel()
+        pipSourceObservation = nil
+        pipPossibleObservation = nil
+        pip?.delegate = nil
+        pip?.stopPictureInPicture()
+        pip = nil
+        pipDelegate = nil
+        isRestoringFromPictureInPicture = false
+        isPictureInPicturePossible = false
+        isPictureInPictureActive = false
     }
 
     private func fitWindow(toVideo size: CGSize) {
@@ -86,6 +190,7 @@ final class MacPlaybackController {
         volume = session.player.volume
         isMuted = session.player.isMuted
         let reported = session.end()
+        endPictureInPicture()
         session.player.stop()
         stateObservation?.cancel()
         stateObservation = nil
@@ -616,6 +721,35 @@ final class MacPlaybackController {
     }
 }
 
+/// AVKit's delegate is an NSObject protocol; this passes its three moments on.
+private final class MacPictureInPictureDelegate: NSObject, AVPictureInPictureControllerDelegate {
+    private let didStart: () -> Void
+    private let restore: () -> Void
+    private let didStop: () -> Void
+
+    init(didStart: @escaping () -> Void, restore: @escaping () -> Void, didStop: @escaping () -> Void) {
+        self.didStart = didStart
+        self.restore = restore
+        self.didStop = didStop
+    }
+
+    func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
+        didStart()
+    }
+
+    func pictureInPictureController(
+        _ controller: AVPictureInPictureController,
+        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
+    ) {
+        restore()
+        completionHandler(true)
+    }
+
+    func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
+        didStop()
+    }
+}
+
 // MARK: - Player
 
 /// A Plex title over the whole window: the video, captions, and controls that
@@ -624,6 +758,7 @@ struct MacVODPlayerView: View {
     var session: MacPlexPlayback
     var player: AetherPlayer
     let close: () -> Void
+    @Environment(MacPlaybackController.self) private var controller
     @State private var controlsVisible = true
     @State private var hideTask: Task<Void, Never>?
     @State private var scrubbing: Double?
@@ -901,6 +1036,13 @@ struct MacVODPlayerView: View {
                     .help(player.airPlayPlayer == nil
                           ? "AirPlay: sound only at Original quality. Pick another quality to send the picture too."
                           : "AirPlay")
+
+                Button { controller.startPictureInPicture() } label: {
+                    Image(systemName: "pip.enter")
+                }
+                .disabled(!controller.isPictureInPicturePossible)
+                .accessibilityLabel("Picture in Picture")
+                .help("Picture in Picture (⌃⌘P)")
 
                 Button { NSApp.keyWindow?.toggleFullScreen(nil) } label: {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")

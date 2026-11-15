@@ -111,6 +111,66 @@ extension MacPlexSession {
         return try await network.getPopularTracks(serverURL: serverURL, authToken: token, sectionId: sectionKey, artistKey: key)
     }
 
+    /// The artist's tracks this listener has played most, with their counts.
+    func mostPlayedTracks(of artist: PlexMetadata, sectionKey: String) async -> [PlexMetadata] {
+        guard let key = artist.ratingKey, let (serverURL, token) = try? configuration() else { return [] }
+        let tracks = (try? await network.getMostPlayedTracks(
+            serverURL: serverURL, authToken: token, sectionId: sectionKey, artistKey: key)) ?? []
+        return tracks.filter { ($0.viewCount ?? 0) > 0 }
+    }
+
+    /// Each album's release type, by rating key. Plex's lists usually leave the
+    /// format tags out, so an album without them is looked up on its own: six at
+    /// a time, at most sixty, remembered for the session.
+    func releaseGroups(of albums: [PlexMetadata]) async -> [String: MusicReleaseGroup] {
+        guard let (serverURL, token) = try? configuration() else { return [:] }
+        var groups: [String: MusicReleaseGroup] = [:]
+        var missing: [String] = []
+        for album in albums {
+            guard let key = album.ratingKey else { continue }
+            if album.hasReleaseTags {
+                groups[key] = album.releaseGroup
+            } else if let known = MacMusicReleaseGroups.known["\(serverURL)|\(key)"] {
+                groups[key] = known
+            } else {
+                missing.append(key)
+            }
+        }
+        let network = self.network
+        var pending = missing.prefix(60)[...]
+        while !pending.isEmpty, !Task.isCancelled {
+            let batch = pending.prefix(6)
+            pending = pending.dropFirst(6)
+            let found = await withTaskGroup(of: (String, MusicReleaseGroup?).self) { group in
+                for key in batch {
+                    group.addTask {
+                        (key, (try? await network.getMusicMetadata(serverURL: serverURL, authToken: token, ratingKey: key))?.releaseGroup)
+                    }
+                }
+                var results: [String: MusicReleaseGroup] = [:]
+                for await (key, value) in group { if let value { results[key] = value } }
+                return results
+            }
+            for (key, value) in found {
+                groups[key] = value
+                MacMusicReleaseGroups.known["\(serverURL)|\(key)"] = value
+            }
+        }
+        return groups
+    }
+
+    /// Sets the listener's stars (1 to 5) on an artist, album or track; nil clears them.
+    func rate(_ item: PlexMetadata, stars: Int?) async -> Bool {
+        guard let key = item.ratingKey, let (serverURL, token) = try? configuration() else { return false }
+        do {
+            try await network.setRating(serverURL: serverURL, authToken: token, ratingKey: key,
+                                        rating: stars.map { $0 * Int(PlexUserRating.starScale) })
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /// An artist or album with its guids, styles, moods and reviews.
     func musicDetail(for item: PlexMetadata) async throws -> PlexMetadata {
         guard let key = item.ratingKey else { return item }
@@ -252,7 +312,37 @@ extension MacPlexSession {
     }
 }
 
+/// Release types found this session, by server and rating key.
+@MainActor
+enum MacMusicReleaseGroups {
+    static var known: [String: MusicReleaseGroup] = [:]
+}
+
+/// "12 plays · last played 3 weeks ago" from a play count and a last-played time.
+nonisolated enum MacMusicHistory {
+    static func line(plays: Int?, lastPlayed: Int?) -> String? {
+        var parts: [String] = []
+        if let plays, plays > 0 { parts.append(plays == 1 ? "1 play" : "\(plays.formatted()) plays") }
+        if let lastPlayed, lastPlayed > 0 {
+            let date = Date(timeIntervalSince1970: TimeInterval(lastPlayed))
+            let when = date.formatted(.relative(presentation: .named))
+            parts.append(parts.isEmpty ? "Last played \(when)" : "last played \(when)")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// An album's own count where Plex gives one, else its tracks' plays together.
+    static func line(album: PlexMetadata, tracks: [PlexMetadata]) -> String? {
+        let last = ([album.lastViewedAt] + tracks.map(\.lastViewedAt)).compactMap { $0 }.max()
+        let trackPlays = tracks.compactMap(\.viewCount).reduce(0, +)
+        return line(plays: trackPlays > 0 ? trackPlays : album.viewCount, lastPlayed: last)
+    }
+}
+
 extension PlexMetadata {
+    /// This listener's plays of the item, and when the last one was.
+    var historyLine: String? { MacMusicHistory.line(plays: viewCount, lastPlayed: lastViewedAt) }
+
     /// A track's artist: the track artist where it differs from the album's.
     var trackArtist: String? { originalTitle ?? grandparentTitle }
 

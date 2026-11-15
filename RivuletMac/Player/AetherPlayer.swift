@@ -14,6 +14,7 @@
 //
 
 @preconcurrency import AVFoundation
+import AVKit
 import AppKit
 import Combine
 import CoreMedia
@@ -152,6 +153,11 @@ final class AetherPlayer {
     /// Nil otherwise, and the button then moves the sound alone.
     private(set) var airPlayPlayer: AVPlayer?
     @ObservationIgnored private weak var hostPlayer: AVPlayer?
+    /// What Picture in Picture shows for this session: the engine's own player layer,
+    /// or the software path's display layer with the engine answering its transport.
+    /// Not Sendable, so observers watch `pictureInPictureRevision` and read this.
+    @ObservationIgnored private(set) var pictureInPictureSource: AVPictureInPictureController.ContentSource?
+    private(set) var pictureInPictureRevision = 0
     @ObservationIgnored private var sourceReachesReceiver = false {
         didSet { updateAirPlayPlayer() }
     }
@@ -341,6 +347,7 @@ final class AetherPlayer {
                 self.nativeItemObservation = nil
                 self.hostPlayer = avPlayer
                 self.updateAirPlayPlayer()
+                self.refreshPictureInPictureSource()
                 self.observeTimeControlStatus(of: avPlayer)
                 guard let avPlayer else {
                     self.observeVideoSize(of: nil)
@@ -356,6 +363,11 @@ final class AetherPlayer {
             }
             .store(in: &cancellables)
 
+        engine.$softwarePiPSource
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshPictureInPictureSource() }
+            .store(in: &cancellables)
+
         // The software path's picture size under its pixel aspect ratio
         // (anamorphic SD broadcast); nil on the native path.
         engine.$softwareDisplaySize
@@ -364,6 +376,27 @@ final class AetherPlayer {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.videoSize = $0 }
             .store(in: &cancellables)
+    }
+
+    /// Keeps the engine's pipeline running for the Picture in Picture window.
+    func setPictureInPictureActive(_ active: Bool) {
+        engine.pictureInPictureActive = active
+    }
+
+    private func refreshPictureInPictureSource() {
+        let current = pictureInPictureSource
+        if let software = engine.softwarePiPSource {
+            guard current?.sampleBufferDisplayLayer !== software.layer else { return }
+            pictureInPictureSource = AVPictureInPictureController.ContentSource(
+                sampleBufferDisplayLayer: software.layer, playbackDelegate: software.playbackDelegate)
+        } else if let layer = engine.nativePlayerLayer {
+            guard current?.playerLayer !== layer else { return }
+            pictureInPictureSource = AVPictureInPictureController.ContentSource(playerLayer: layer)
+        } else {
+            guard current != nil else { return }
+            pictureInPictureSource = nil
+        }
+        pictureInPictureRevision += 1
     }
 
     private func updateAirPlayPlayer() {
@@ -712,6 +745,7 @@ final class AetherPlayer {
         videoSize = .zero
         liveWindow = .idle
         captions = []
+        engine.pictureInPictureActive = false
         engine.stop()
         state = .idle
     }

@@ -45,6 +45,25 @@ extension PlexNetworkManager {
         ])
     }
 
+    /// The artist's tracks this listener has played, most played first.
+    func getMostPlayedTracks(
+        serverURL: String,
+        authToken: String,
+        sectionId: String,
+        artistKey: String,
+        count: Int = 5
+    ) async throws -> [PlexMetadata] {
+        try await musicItems(serverURL: serverURL, authToken: authToken, path: "/library/sections/\(sectionId)/all", query: [
+            URLQueryItem(name: "type", value: "10"),
+            URLQueryItem(name: "artist.id", value: artistKey),
+            // "viewCount>>=1": played at least once.
+            URLQueryItem(name: "viewCount>>", value: "0"),
+            URLQueryItem(name: "sort", value: "viewCount:desc"),
+            URLQueryItem(name: "X-Plex-Container-Start", value: "0"),
+            URLQueryItem(name: "X-Plex-Container-Size", value: "\(count)")
+        ])
+    }
+
     /// An artist or album with its guids and reviews, for the music pages.
     func getMusicMetadata(serverURL: String, authToken: String, ratingKey: String) async throws -> PlexMetadata {
         guard var components = URLComponents(string: "\(serverURL)/library/metadata/\(ratingKey)") else {

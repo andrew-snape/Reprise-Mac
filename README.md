@@ -30,7 +30,8 @@ server; IPTV sources can be configured separately.
   Credits, Up Next, and Home or Away streaming quality. Info, Chapters and
   Details panes open above the player controls. AirPlay for transcoded video.
 - **Music**: browse Plex music libraries, play albums and artists with gapless
-  albums and loudness levelling, and manage the queue. Download Ahead saves the
+  albums, loudness levelling and optional crossfade, and a queue that is still there
+  after you quit. Rate what you hear, and see what you play most. Download Ahead saves the
   next tracks on your Mac, within a size limit you set. Optional online artist
   and album details (off by default) add bios, photos and links.
 - **Radio**: internet radio stations and playlists, showing the song a station
@@ -66,6 +67,7 @@ server; IPTV sources can be configured separately.
 | ⌘D | Add or remove the channel from favourites |
 | ⌘. | Stop |
 | ⌃⌘F or double-click | Full screen |
+| ⌃⌘P | Picture in Picture (Plex) |
 | ⌘R | Refresh |
 | ⌘, | Settings |
 

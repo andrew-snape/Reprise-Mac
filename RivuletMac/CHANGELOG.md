@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Picture in Picture for Plex titles: the button beside Full Screen, or ⌃⌘P. Browse the app while the picture floats.
+- On your home network, Rivulet now prefers your server's secure address over plain HTTP.
+- Newer playback engine (AetherEngine 7.67.1).
+- Music: your queue comes back after you quit, paused where you left it.
+- Music: rate artists, albums and songs by clicking the stars, or from the right-click menu.
+- Music: an artist's page groups releases into Albums, Singles & EPs, Live, Compilations and more, and lists Your Most Played.
+- Music: play counts and when you last played something show on artist and album pages and in Now Playing. Sort a library by Last Played or Most Played.
+- Music: optional crossfade between songs (Settings > Music). Album tracks that run together stay gapless.
+
 ## 0.63
 
 - VoiceOver reads a name for every icon-only button.

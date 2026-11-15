@@ -77,35 +77,96 @@ struct MacMusicChips: View {
     }
 }
 
-/// The listener's stars and the critic's rating, whichever exist.
+/// Ratings set this session, by rating key, so every view of an item agrees
+/// before Plex's lists are fetched again. 0 is a rating cleared.
+@MainActor
+@Observable
+final class MacMusicRatings {
+    static let shared = MacMusicRatings()
+    private(set) var stars: [String: Int] = [:]
+
+    func stars(for item: PlexMetadata) -> Double? {
+        if let key = item.ratingKey, let set = stars[key] { return set == 0 ? nil : Double(set) }
+        return PlexUserRating.stars(item.userRating)
+    }
+
+    /// Shows the new rating at once and puts the old one back if Plex refuses it.
+    func set(_ value: Int?, on item: PlexMetadata, plex: MacPlexSession) {
+        guard let key = item.ratingKey else { return }
+        let before = stars[key]
+        stars[key] = value ?? 0
+        Task {
+            if await plex.rate(item, stars: value) == false { stars[key] = before }
+        }
+    }
+}
+
+/// The listener's five stars. Click one to rate; click the rating again to clear it.
+struct MacMusicStars: View {
+    let item: PlexMetadata
+    @Environment(MacPlexSession.self) private var plex
+    @State private var hovered: Int?
+
+    var body: some View {
+        let current = MacMusicRatings.shared.stars(for: item) ?? 0
+        HStack(spacing: 2) {
+            ForEach(1...5, id: \.self) { star in
+                let shown = Double(hovered ?? 0) > 0 ? Double(hovered ?? 0) : current
+                Button {
+                    MacMusicRatings.shared.set(Int(current) == star ? nil : star, on: item, plex: plex)
+                } label: {
+                    Image(systemName: shown >= Double(star) ? "star.fill"
+                          : (shown >= Double(star) - 0.5 ? "star.leadinghalf.filled" : "star"))
+                        .foregroundStyle(shown >= Double(star) - 0.5 ? AnyShapeStyle(.yellow) : AnyShapeStyle(.tertiary))
+                }
+                .buttonStyle(.plain)
+                .onHover { hovered = $0 ? star : (hovered == star ? nil : hovered) }
+                .accessibilityLabel(star == 1 ? "1 star" : "\(star) stars")
+            }
+        }
+        .font(.caption)
+        .help(current > 0 ? "Your Rating. Click it again to clear." : "Rate")
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Your Rating")
+        .accessibilityValue(current > 0 ? "\(Int(current)) of 5" : "Not rated")
+    }
+}
+
+/// The listener's stars, which can be set, and the critic's rating when there is one.
 struct MacMusicRatingBadge: View {
     let item: PlexMetadata
 
     var body: some View {
-        let stars = PlexUserRating.stars(item.userRating)
         let critic = (item.rating ?? 0) > 0 ? item.rating : nil
-        if stars != nil || critic != nil {
-            HStack(spacing: 12) {
-                if let stars {
-                    HStack(spacing: 2) {
-                        ForEach(0..<5, id: \.self) { index in
-                            Image(systemName: stars >= Double(index) + 1 ? "star.fill"
-                                  : (stars >= Double(index) + 0.5 ? "star.leadinghalf.filled" : "star"))
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.yellow)
-                    .help("Your Rating")
-                }
-                if let critic {
-                    Text("★ " + (critic / 2).formatted(.number.precision(.fractionLength(1))))
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .help("Critic Rating")
-                }
+        HStack(spacing: 12) {
+            MacMusicStars(item: item)
+            if let critic {
+                Text("★ " + (critic / 2).formatted(.number.precision(.fractionLength(1))))
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .help("Critic Rating")
             }
-        } else {
-            EmptyView()
+        }
+    }
+}
+
+/// "Rating" in an item's right-click menu.
+struct MacMusicRatingMenu: View {
+    let item: PlexMetadata
+    @Environment(MacPlexSession.self) private var plex
+
+    var body: some View {
+        let current = Int(MacMusicRatings.shared.stars(for: item) ?? 0)
+        Menu("Rating", systemImage: "star") {
+            ForEach((1...5).reversed(), id: \.self) { star in
+                Toggle(String(repeating: "★", count: star), isOn: Binding(
+                    get: { current == star },
+                    set: { _ in MacMusicRatings.shared.set(star, on: item, plex: plex) }))
+                    .accessibilityLabel(star == 1 ? "1 star" : "\(star) stars")
+            }
+            Divider()
+            Button("No Rating") { MacMusicRatings.shared.set(nil, on: item, plex: plex) }
+                .disabled(current == 0)
         }
     }
 }

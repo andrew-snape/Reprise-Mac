@@ -397,6 +397,9 @@ nonisolated struct PlexMetadata: Codable, Identifiable, Hashable, Sendable {
     var Style: [PlexTag]? = nil
     var Mood: [PlexTag]? = nil
     var Similar: [PlexTag]? = nil
+    /// An album's release type: Album, EP or Single, and Live, Compilation and the like.
+    var Format: [PlexTag]? = nil
+    var Subformat: [PlexTag]? = nil
     var ratingCount: Int? = nil
     var Review: [PlexReview]? = nil
 

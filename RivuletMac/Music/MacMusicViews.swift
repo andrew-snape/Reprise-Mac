@@ -47,6 +47,7 @@ struct MacMusicItemMenu: View {
             Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { music.perform(.addToQueue, on: item) }
         }
         Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") { music.perform(.radio, on: item) }
+        if item.type != "playlist" { MacMusicRatingMenu(item: item) }
         if item.type == "track" || item.type == "album" {
             Section {
                 if let album = item.albumStub {
@@ -168,8 +169,10 @@ struct MacMusicLibraryView: View {
 
     private var sorts: [(LibrarySortOption, String)] {
         kind == .albums
-            ? [(.titleAsc, "Title"), (.addedAtDesc, "Date Added"), (.releaseDateDesc, "Release Date")]
-            : [(.titleAsc, "Title"), (.addedAtDesc, "Date Added")]
+            ? [(.titleAsc, "Title"), (.addedAtDesc, "Date Added"), (.releaseDateDesc, "Release Date"),
+               (.lastViewedAtDesc, "Last Played"), (.viewCountDesc, "Most Played")]
+            : [(.titleAsc, "Title"), (.addedAtDesc, "Date Added"),
+               (.lastViewedAtDesc, "Last Played"), (.viewCountDesc, "Most Played")]
     }
 
     private var sort: LibrarySortOption {
@@ -304,7 +307,9 @@ struct MacMusicArtistView: View {
     @Environment(MacPlexSession.self) private var plex
     @State private var full: PlexMetadata?
     @State private var popular: [PlexMetadata] = []
+    @State private var mostPlayed: [PlexMetadata] = []
     @State private var albums: [PlexMetadata] = []
+    @State private var releaseGroups: [String: MusicReleaseGroup] = [:]
     @State private var similar: [PlexHub] = []
     @State private var fallbackSimilar: [PlexMetadata] = []
     @State private var tint: Color?
@@ -322,6 +327,17 @@ struct MacMusicArtistView: View {
         return styles + country + Array(moods)
     }
 
+    /// The albums by release type, in the order record shops shelve them. Until
+    /// the types are known, and when every album is a plain album, one group.
+    private var albumSections: [(group: MusicReleaseGroup, albums: [PlexMetadata])] {
+        let grouped = Dictionary(grouping: albums) { album in
+            album.ratingKey.flatMap { releaseGroups[$0] } ?? .albums
+        }
+        return MusicReleaseGroup.allCases.compactMap { group in
+            grouped[group].map { (group, $0) }
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
@@ -332,6 +348,9 @@ struct MacMusicArtistView: View {
                             Text(shown.displayTitle).font(.largeTitle.bold()).lineLimit(2)
                             MacMusicChips(texts: chips)
                             MacMusicRatingBadge(item: shown)
+                            if let history = shown.historyLine {
+                                Text(history).font(.caption).foregroundStyle(.secondary)
+                            }
                             HStack(spacing: 12) {
                                 MacMusicPlayButtons(item: shown)
                                 MacMusicLinksMenu(links: online?.links ?? [])
@@ -353,10 +372,18 @@ struct MacMusicArtistView: View {
                         MacMusicTrackList(tracks: popular, showsArtwork: true, showsPopularity: true)
                     }
                 }
+                if !mostPlayed.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Your Most Played").font(.title2.bold()).padding(.horizontal, MacTile.margin)
+                        MacMusicTrackList(tracks: mostPlayed, showsArtwork: true, showsPlays: true)
+                    }
+                }
                 if !albums.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Albums").font(.title2.bold()).padding(.horizontal, MacTile.margin)
-                        MacMusicGrid(items: albums)
+                    ForEach(albumSections, id: \.group) { section in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(section.group.title).font(.title2.bold()).padding(.horizontal, MacTile.margin)
+                            MacMusicGrid(items: section.albums)
+                        }
                     }
                 } else if let error {
                     MacPlexErrorView(title: "Couldn't Load Artist", message: error) { await load() }
@@ -396,7 +423,14 @@ struct MacMusicArtistView: View {
                 let tracks = Array(((try? await plex.popularTracks(of: loaded, sectionKey: String(section))) ?? []).prefix(5))
                 guard !Task.isCancelled else { return }
                 popular = tracks
+                let played = await plex.mostPlayedTracks(of: loaded, sectionKey: String(section))
+                guard !Task.isCancelled else { return }
+                // One or two plays say little; a list of them is not a favourites list.
+                mostPlayed = played.count >= 3 ? played : []
             }
+            let groups = await plex.releaseGroups(of: loadedAlbums)
+            guard !Task.isCancelled else { return }
+            releaseGroups = groups
             let related = await plex.musicRelated(to: loaded, kind: "artist")
             guard !Task.isCancelled else { return }
             similar = related
@@ -520,7 +554,10 @@ struct MacMusicAlbumView: View {
                             MacMusicChips(texts: chips)
                             HStack(spacing: 12) {
                                 if let quality { MacMusicQualityBadge(quality: quality) }
-                                MacMusicRatingBadge(item: shown)
+                                if !isPlaylist { MacMusicRatingBadge(item: shown) }
+                            }
+                            if !isPlaylist, let history = MacMusicHistory.line(album: shown, tracks: tracks) {
+                                Text(history).font(.caption).foregroundStyle(.secondary)
                             }
                             HStack(spacing: 12) {
                                 MacMusicPlayButtons(item: shown)
@@ -628,6 +665,8 @@ struct MacMusicTrackList: View {
     /// Hidden on rows by the same artist.
     var albumArtist: String?
     var showsPopularity = false
+    /// The listener's own play count on each row.
+    var showsPlays = false
     @Environment(MacMusicPlayback.self) private var music
 
     /// Play counts on a log scale against the most played; nil with no counts.
@@ -675,6 +714,7 @@ struct MacMusicTrackList: View {
                         showsArtwork: showsArtwork,
                         showsArtist: row.track.trackArtist != albumArtist,
                         popularity: popularity(of: row.track),
+                        showsPlays: showsPlays,
                         play: { music.play(tracks, from: row.offset, isAlbum: isAlbum) }
                     )
                 }
@@ -690,9 +730,13 @@ struct MacMusicTrackRow: View {
     var showsArtwork = false
     var showsArtist = true
     var popularity: Double?
+    var showsPlays = false
     let play: () -> Void
     @Environment(MacMusicPlayback.self) private var music
     @State private var hovering = false
+
+    /// The listener's stars on the track, when it has any.
+    private var stars: Int { Int(MacMusicRatings.shared.stars(for: track) ?? 0) }
 
     private var isCurrent: Bool { music.track?.ratingKey != nil && music.track?.ratingKey == track.ratingKey }
 
@@ -725,6 +769,18 @@ struct MacMusicTrackRow: View {
                 }
             }
             Spacer(minLength: 12)
+            if stars > 0 {
+                Text(String(repeating: "★", count: stars))
+                    .font(.caption2)
+                    .foregroundStyle(.yellow)
+                    .accessibilityLabel(stars == 1 ? "1 star" : "\(stars) stars")
+            }
+            if showsPlays, let plays = track.viewCount, plays > 0 {
+                Text(plays == 1 ? "1 play" : "\(plays.formatted()) plays")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
             if let popularity { MacMusicPopularityBar(fraction: popularity) }
             if let time = track.trackTime {
                 Text(time).foregroundStyle(.secondary).monospacedDigit()
@@ -737,5 +793,6 @@ struct MacMusicTrackRow: View {
         .onHover { hovering = $0 }
         .onTapGesture(count: 2, perform: play)
         .contextMenu { MacMusicItemMenu(item: track) }
+        .help(track.historyLine ?? "")
     }
 }

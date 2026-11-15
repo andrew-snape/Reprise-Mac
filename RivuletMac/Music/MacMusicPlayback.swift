@@ -19,6 +19,8 @@ final class MacMusicPlayback {
     }
 
     static let loudnessKey = "musicLoudnessLevelling"
+    /// Seconds of crossfade between songs; 0 is off.
+    static let crossfadeKey = "musicCrossfadeSeconds"
 
     let player = MacMusicPlayer()
     @ObservationIgnored private let output = MacAudioOutput()
@@ -48,6 +50,11 @@ final class MacMusicPlayback {
     @ObservationIgnored private let precache = MacMusicPrecache()
     @ObservationIgnored private var reportedStopped = true
     @ObservationIgnored private var lastReportBucket = -1
+    /// Where a restored queue's track picks up; set until it is first played.
+    @ObservationIgnored private var resumeTime: TimeInterval?
+    /// The saved queue has been looked at this launch, so saving may replace it.
+    @ObservationIgnored private var hasRestored = false
+    @ObservationIgnored private var saveTask: Task<Void, Never>?
 
     init() {
         player.onAdvance = { [weak self] in self?.playerAdvanced(to: $0) }
@@ -107,9 +114,90 @@ final class MacMusicPlayback {
         wasEmpty ? loadCurrent() : queueChanged()
     }
 
+    // MARK: - Saved queue
+
+    /// The server and profile the queue belongs to.
+    private var owner: String {
+        let server = PlexAuthManager.shared.savedServerName ?? ""
+        let profile = PlexUserProfileManager.shared.selectedUserId.map(String.init) ?? ""
+        return "\(server)|\(profile)"
+    }
+
+    /// Brings back the queue from the last launch, paused where it stopped.
+    /// Nothing is fetched until Play is pressed. Once per launch.
+    func restoreQueue() {
+        guard !hasRestored else { return }
+        hasRestored = true
+        guard queue.isEmpty, let saved = MacMusicQueueStore.read() else { return }
+        guard saved.owner == owner, !saved.queue.tracks.isEmpty else {
+            MacMusicQueueStore.clear()
+            return
+        }
+        queue = MusicQueue(saved.queue)
+        if let radio = saved.radio {
+            self.radio = radio == "similar" ? .similar : radio.hasPrefix("library:") ? .library(String(radio.dropFirst(8))) : nil
+        }
+        guard let entry = queue.current else { return }
+        let time = UserDefaults.standard.double(forKey: MacMusicQueueStore.positionKey)
+        let length = entry.track.durationSeconds
+        // A track left in its last seconds starts over.
+        resumeTime = length > 0 && time > length - 5 ? 0 : max(time, 0)
+        player.showPaused(entry.id, duration: length, at: resumeTime ?? 0)
+    }
+
+    private func scheduleSave() {
+        guard hasRestored else { return }
+        saveTask?.cancel()
+        saveTask = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            saveQueue(waiting: false)
+        }
+    }
+
+    /// Writes the queue and the position. `waiting` holds the caller until the
+    /// file is down, for a quit.
+    private func saveQueue(waiting: Bool) {
+        guard hasRestored else { return }
+        saveTask?.cancel()
+        guard let saved = queue.saved() else {
+            MacMusicQueueStore.clear()
+            return
+        }
+        savePosition()
+        let radioName: String? = switch radio {
+        case .similar: "similar"
+        case .library(let key): "library:\(key)"
+        case nil: nil
+        }
+        let record = MacMusicSavedQueue(owner: owner, queue: saved, radio: radioName)
+        if waiting {
+            MacMusicQueueStore.write(record)
+        } else {
+            Task.detached(priority: .utility) { MacMusicQueueStore.write(record) }
+        }
+    }
+
+    private func savePosition() {
+        guard hasRestored, queue.current != nil else { return }
+        UserDefaults.standard.set(resumeTime ?? player.currentTime, forKey: MacMusicQueueStore.positionKey)
+    }
+
+    /// Quitting: the queue is kept for next time, and Plex hears the track stopped.
+    @discardableResult
+    func quit() -> Task<Void, Never>? {
+        saveQueue(waiting: true)
+        return stop(keepingSavedQueue: true)
+    }
+
     // MARK: - Transport
 
     func togglePlayPause() {
+        // A restored queue loads its track on the first Play.
+        if let time = resumeTime, isActive {
+            loadCurrent(at: time)
+            return
+        }
         switch player.state {
         case .ended, .failed, .idle:
             if isActive { loadCurrent() }
@@ -129,6 +217,7 @@ final class MacMusicPlayback {
     }
 
     func seek(to time: TimeInterval) {
+        if resumeTime != nil { resumeTime = max(time, 0) }
         player.seek(to: time)
         report(player.state == .playing ? "playing" : "paused")
     }
@@ -176,8 +265,18 @@ final class MacMusicPlayback {
 
     /// Stops and empties the queue. The task ends once Plex has the final report.
     @discardableResult
-    func stop() -> Task<Void, Never>? {
+    func stop(keepingSavedQueue: Bool = false) -> Task<Void, Never>? {
         let reported = finishCurrent()
+        saveTask?.cancel()
+        resumeTime = nil
+        // Stop means the queue is done with; before the saved one was looked at
+        // (a locked profile at launch) there is nothing of this launch's to forget.
+        if keepingSavedQueue {
+            // Kept for the next launch, or for this profile once it is back in.
+            hasRestored = false
+        } else if hasRestored {
+            MacMusicQueueStore.clear()
+        }
         generation += 1
         loadTask?.cancel()
         nextTask?.cancel()
@@ -203,6 +302,8 @@ final class MacMusicPlayback {
     private func loadCurrent(forceTranscode: Bool = false, at time: TimeInterval = 0) {
         guard let plex, let entry = queue.current else { return }
         finishCurrent()
+        resumeTime = nil
+        hasRestored = true
         generation += 1
         let generation = generation
         loadTask?.cancel()
@@ -235,6 +336,7 @@ final class MacMusicPlayback {
     /// The queued follow-on no longer matches the queue: queue the right one.
     private func queueChanged() {
         defer { updatePrecache() }
+        scheduleSave()
         refillRadioIfNeeded()
         guard let current else { return }
         let wanted = queue.entryAfterCurrent
@@ -256,15 +358,33 @@ final class MacMusicPlayback {
             guard let source = try? await plex.musicSource(for: wanted.id, track: wanted.track),
                   generation == self.generation, queue.entryAfterCurrent?.id == wanted.id else { return }
             next = source
-            player.setNext(source, gain: gain(for: source))
+            player.setNext(source, gain: gain(for: source), crossfade: crossfade(into: source))
         }
+    }
+
+    /// How long `next` fades in under the end of the playing track; 0 for none.
+    /// An album's own run of tracks stays gapless, as it was mastered. Songs
+    /// too short to carry a fade are cut as before, and so is everything while
+    /// the output's sample rate follows the music: retuning the device mid-fade clicks.
+    private func crossfade(into next: MacMusicSource) -> TimeInterval {
+        let seconds = TimeInterval(UserDefaults.standard.integer(forKey: Self.crossfadeKey))
+        guard seconds > 0, let current, next.entryID != current.entryID,
+              MusicOutputRate.setting == MusicOutputRate.dontChange else { return 0 }
+        let (playing, coming) = (current.track, next.track)
+        if let album = playing.parentRatingKey, album == coming.parentRatingKey,
+           (playing.parentIndex ?? 1) == (coming.parentIndex ?? 1),
+           let index = playing.index, coming.index == index + 1 {
+            return 0
+        }
+        guard playing.durationSeconds > seconds * 3, coming.durationSeconds > seconds * 3 else { return 0 }
+        return seconds
     }
 
     private func updatePrecache() {
         precache.update(
             current: current,
             upcoming: queue.upcoming(MacMusicPrecache.count),
-            canDownload: player.state == .playing || player.state == .paused)
+            canDownload: current != nil && (player.state == .playing || player.state == .paused))
     }
 
     /// A queued song finished downloading: swap its network URL for the file,
@@ -274,7 +394,7 @@ final class MacMusicPlayback {
               player.duration - player.currentTime > 10 else { return }
         let cached = next.withURL(file)
         self.next = cached
-        player.setNext(cached, gain: gain(for: cached))
+        player.setNext(cached, gain: gain(for: cached), crossfade: crossfade(into: cached))
     }
 
     private func gain(for source: MacMusicSource) -> Float {
@@ -359,7 +479,7 @@ final class MacMusicPlayback {
                 guard let source = try? await plex.musicSource(for: wanted.id, track: wanted.track, forceTranscode: !wasCached),
                       generation == self.generation, queue.entryAfterCurrent?.id == wanted.id else { return }
                 self.next = source
-                player.setNext(source, gain: gain(for: source))
+                player.setNext(source, gain: gain(for: source), crossfade: crossfade(into: source))
             }
         }
     }
@@ -410,7 +530,9 @@ final class MacMusicPlayback {
         updatePrecache()
         switch state {
         case .playing: report("playing")
-        case .paused: report("paused")
+        case .paused:
+            report("paused")
+            savePosition()
         case .ended: playerRanOut()
         default: break
         }
@@ -422,6 +544,7 @@ final class MacMusicPlayback {
         if bucket != lastReportBucket {
             lastReportBucket = bucket
             report("playing")
+            savePosition()
         }
     }
 

@@ -10,6 +10,11 @@ import Observation
 /// queued, so an album plays without gaps between tracks. AetherPlayer stays
 /// video only; AVFoundation opens every common audio format itself.
 ///
+/// A crossfade needs two tracks sounding at once, which one queue player cannot
+/// do. A track that is to fade in waits on a second player instead of in the
+/// queue; near the end of the playing one the two swap roles and their volumes
+/// cross. With no crossfade asked for, the second player is never made.
+///
 /// The player knows nothing of the queue. `MacMusicPlayback` loads a track,
 /// queues the next, and hears back when playback moved on, ended or failed.
 @MainActor
@@ -50,21 +55,28 @@ final class MacMusicPlayer {
         var observations: [AnyCancellable]
     }
 
-    @ObservationIgnored private let player = AVQueuePlayer()
+    /// The player that is audible, or the one fading in.
+    @ObservationIgnored private var player = AVQueuePlayer()
     @ObservationIgnored private var loaded: [ObjectIdentifier: Loaded] = [:]
     @ObservationIgnored private var currentItem: ObjectIdentifier?
     @ObservationIgnored private var playerObservations: [AnyCancellable] = []
-    @ObservationIgnored private var clock: Any?
+    @ObservationIgnored private var clocks: [Any] = []
+
+    // Crossfade
+    /// The other player: idle, holding the track that will fade in, or fading out.
+    @ObservationIgnored private var spare: AVQueuePlayer?
+    /// The track waiting on `spare`, and how long its fade in is to be.
+    @ObservationIgnored private var standby: (item: ObjectIdentifier, fade: TimeInterval)?
+    /// The track fading out on `spare`.
+    @ObservationIgnored private var outgoing: (item: ObjectIdentifier?, gain: Float, duration: TimeInterval)?
+    /// A follow-on asked for while `spare` was still fading out; set once it is free.
+    @ObservationIgnored private var deferredNext: (source: MacMusicSource, gain: Float, fade: TimeInterval)?
+    /// 0 as a fade starts, 1 when it is over.
+    @ObservationIgnored private var fadeProgress: Double = 1
+    @ObservationIgnored private var fadeTask: Task<Void, Never>?
 
     init() {
-        player.actionAtItemEnd = .advance
         playerObservations = [
-            Self.onMain(Self.currentItems(of: player)) { [weak self] in
-                self?.currentItemChanged($0)
-            },
-            Self.onMain(Self.timeControlChanges(of: player)) { [weak self] _ in
-                self?.updateState()
-            },
             Self.onMain(Self.items(posting: AVPlayerItem.didPlayToEndTimeNotification)) { [weak self] in
                 self?.itemEnded($0)
             },
@@ -72,9 +84,25 @@ final class MacMusicPlayer {
                 self?.itemFailed($0)
             },
         ]
-        clock = Self.addClock(to: player) { [weak self] seconds in
-            self?.clockTicked(seconds)
-        }
+        observe(player)
+    }
+
+    /// Events count only from the player that is in front at the time.
+    private func observe(_ observed: AVQueuePlayer) {
+        observed.actionAtItemEnd = .advance
+        let id = ObjectIdentifier(observed)
+        playerObservations.append(Self.onMain(Self.currentItems(of: observed)) { [weak self] in
+            guard let self, id == ObjectIdentifier(self.player) else { return }
+            self.currentItemChanged($0)
+        })
+        playerObservations.append(Self.onMain(Self.timeControlChanges(of: observed)) { [weak self] _ in
+            guard let self, id == ObjectIdentifier(self.player) else { return }
+            self.updateState()
+        })
+        clocks.append(Self.addClock(to: observed) { [weak self] seconds in
+            guard let self, id == ObjectIdentifier(self.player) else { return }
+            self.clockTicked(seconds)
+        })
     }
 
     // MARK: - Loading
@@ -106,20 +134,148 @@ final class MacMusicPlayer {
         state = .loading
     }
 
+    /// A restored queue's track, shown paused before anything is loaded.
+    func showPaused(_ id: UUID, duration: TimeInterval, at time: TimeInterval) {
+        clear()
+        currentID = id
+        self.duration = duration
+        currentTime = duration > 0 ? min(max(time, 0), duration) : max(time, 0)
+        state = .paused
+    }
+
     /// Queues `source` to follow the current track, replacing what was queued.
-    func setNext(_ source: MacMusicSource?, gain: Float) {
+    /// With `crossfade` seconds it fades in under the end of the current track
+    /// instead of following it without a gap.
+    func setNext(_ source: MacMusicSource?, gain: Float, crossfade: TimeInterval = 0) {
         for item in player.items() where ObjectIdentifier(item) != currentItem {
             player.remove(item)
             loaded[ObjectIdentifier(item)] = nil
         }
+        clearStandby()
+        deferredNext = nil
         guard let source, let current = player.currentItem else { return }
+        guard crossfade > 0 else {
+            let entry = makeItem(for: source, gain: gain)
+            player.insert(entry.item, after: current)
+            return
+        }
+        // The other player is still fading the last track out.
+        if outgoing != nil {
+            deferredNext = (source, gain, crossfade)
+            return
+        }
+        let waiting = sparePlayer()
         let entry = makeItem(for: source, gain: gain)
-        player.insert(entry.item, after: current)
+        waiting.volume = 0
+        waiting.insert(entry.item, after: nil)
+        waiting.pause()
+        standby = (ObjectIdentifier(entry.item), crossfade)
     }
 
     /// The queued track's entry, if one is queued.
     var nextID: UUID? {
-        player.items().dropFirst().first.flatMap { loaded[ObjectIdentifier($0)]?.id }
+        if let standby { return loaded[standby.item]?.id }
+        if let deferredNext { return deferredNext.source.entryID }
+        return player.items().dropFirst().first.flatMap { loaded[ObjectIdentifier($0)]?.id }
+    }
+
+    private func sparePlayer() -> AVQueuePlayer {
+        if let spare { return spare }
+        let made = AVQueuePlayer()
+        observe(made)
+        spare = made
+        return made
+    }
+
+    private func clearStandby() {
+        guard let standby else { return }
+        spare?.removeAllItems()
+        loaded[standby.item] = nil
+        self.standby = nil
+    }
+
+    // MARK: - Crossfade
+
+    /// Called on each clock tick: starts the fade once the playing track has no
+    /// more left than the fade is long, and the waiting track can start at once.
+    private func beginFadeIfDue() {
+        guard let standby, outgoing == nil, wantsToPlay, duration > 0 else { return }
+        let remaining = duration - currentTime
+        guard remaining <= standby.fade, remaining > 0.3,
+              spare?.currentItem?.status == .readyToPlay else { return }
+        swapToStandby(fade: remaining)
+    }
+
+    /// The waiting track takes over as the current one. With a `fade`, the track
+    /// it replaces plays out underneath; with none it is cut, as when the waiting
+    /// track was not ready in time.
+    private func swapToStandby(fade: TimeInterval) {
+        guard let standby, let incoming = spare, let entry = loaded[standby.item] else { return }
+        let previous = player
+        let previousItem = currentItem
+        self.standby = nil
+        spare = previous
+        player = incoming
+        if fade > 0 {
+            outgoing = (previousItem, previousItem.flatMap { loaded[$0]?.gain } ?? 1, duration)
+            fadeProgress = 0
+        } else {
+            previous.pause()
+            previous.removeAllItems()
+            if let previousItem { loaded[previousItem] = nil }
+        }
+        currentItem = standby.item
+        currentID = entry.id
+        duration = entry.duration
+        currentTime = 0
+        applyVolume()
+        if wantsToPlay { startPlaying() }
+        updateState()
+        onAdvance?(entry.id)
+        if fade > 0 { runFade(over: fade) }
+    }
+
+    /// Crosses the two volumes on equal-power curves. Progress follows the
+    /// outgoing track's own clock, so a pause holds the fade where it is.
+    private func runFade(over length: TimeInterval) {
+        fadeTask?.cancel()
+        fadeTask = Task { [weak self] in
+            var playedFor: TimeInterval = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(30))
+                guard let self, !Task.isCancelled, let outgoing = self.outgoing, let fading = self.spare else { return }
+                if self.wantsToPlay { playedFor += 0.03 }
+                let time = fading.currentTime().seconds
+                // Ended, or stalled on its last seconds: the new track is not held quiet for it.
+                if fading.currentItem == nil || playedFor > length + 2 {
+                    self.fadeProgress = 1
+                } else if time.isFinite {
+                    self.fadeProgress = max(self.fadeProgress, min(1 - (outgoing.duration - time) / length, 1))
+                }
+                self.applyVolume()
+                if self.fadeProgress >= 1 {
+                    self.finishFade()
+                    return
+                }
+            }
+        }
+    }
+
+    private func finishFade() {
+        fadeTask?.cancel()
+        fadeTask = nil
+        if let outgoing {
+            spare?.pause()
+            spare?.removeAllItems()
+            if let item = outgoing.item { loaded[item] = nil }
+        }
+        outgoing = nil
+        fadeProgress = 1
+        applyVolume()
+        if let next = deferredNext {
+            deferredNext = nil
+            setNext(next.source, gain: next.gain, crossfade: next.fade)
+        }
     }
 
     /// Stops and forgets every track.
@@ -133,6 +289,14 @@ final class MacMusicPlayer {
 
     private func clear() {
         wantsToPlay = false
+        fadeTask?.cancel()
+        fadeTask = nil
+        outgoing = nil
+        standby = nil
+        deferredNext = nil
+        fadeProgress = 1
+        spare?.pause()
+        spare?.removeAllItems()
         player.pause()
         player.removeAllItems()
         loaded = [:]
@@ -180,11 +344,13 @@ final class MacMusicPlayer {
     /// lossless file is many seconds. A later stall still waits and resumes on its own.
     private func startPlaying() {
         player.playImmediately(atRate: 1)
+        if outgoing != nil { spare?.play() }
     }
 
     func pause() {
         wantsToPlay = false
         player.pause()
+        if outgoing != nil { spare?.pause() }
         updateState()
     }
 
@@ -209,11 +375,20 @@ final class MacMusicPlayer {
         applyVolume()
     }
 
-    /// The user's volume times the playing track's levelling gain.
+    /// The user's volume times the playing track's levelling gain, and during a
+    /// crossfade each track's share of it.
     private func applyVolume() {
         let gain = currentItem.flatMap { loaded[$0]?.gain } ?? 1
-        player.volume = volume * gain
+        guard let outgoing else {
+            player.volume = volume * gain
+            player.isMuted = isMuted
+            return
+        }
+        let angle = fadeProgress * .pi / 2
+        player.volume = volume * gain * Float(sin(angle))
         player.isMuted = isMuted
+        spare?.volume = volume * outgoing.gain * Float(cos(angle))
+        spare?.isMuted = isMuted
     }
 
     // MARK: - Events
@@ -223,7 +398,8 @@ final class MacMusicPlayer {
         // The queued track took over. The one just finished stays known until
         // the next change, since its end notice may still be on its way.
         let queued = Set(player.items().map(ObjectIdentifier.init))
-        for key in loaded.keys where key != currentItem && !queued.contains(key) { loaded[key] = nil }
+        for key in loaded.keys where key != currentItem && !queued.contains(key)
+            && key != standby?.item && key != outgoing?.item { loaded[key] = nil }
         currentItem = id
         currentID = entry.id
         duration = entry.duration
@@ -236,7 +412,13 @@ final class MacMusicPlayer {
     /// With a track queued after it, the advance reports the end; without
     /// one, playback has run out.
     private func itemEnded(_ id: ObjectIdentifier) {
-        guard id == currentItem, player.items().allSatisfy({ ObjectIdentifier($0) == id }) else { return }
+        guard id == currentItem else { return }
+        // The track that was to fade in was not ready in time: it follows on a cut.
+        if standby != nil {
+            swapToStandby(fade: 0)
+            return
+        }
+        guard player.items().allSatisfy({ ObjectIdentifier($0) == id }) else { return }
         wantsToPlay = false
         currentTime = duration
         state = .ended
@@ -254,6 +436,7 @@ final class MacMusicPlayer {
     private func clockTicked(_ seconds: TimeInterval) {
         guard seconds.isFinite, currentItem != nil else { return }
         currentTime = max(0, seconds)
+        beginFadeIfDue()
     }
 
     private func updateState() {

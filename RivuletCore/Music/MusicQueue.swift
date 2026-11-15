@@ -10,7 +10,7 @@ import Foundation
 /// rest back. Repeat One holds the current track only for automatic advances;
 /// a press of Next always moves on.
 nonisolated struct MusicQueue: Sendable {
-    nonisolated enum RepeatMode: String, CaseIterable, Sendable {
+    nonisolated enum RepeatMode: String, CaseIterable, Codable, Sendable {
         case off, all, one
     }
 
@@ -37,6 +37,32 @@ nonisolated struct MusicQueue: Sendable {
     private var unshuffledUpNext: [UUID]?
 
     init() {}
+
+    // MARK: - Saving
+
+    /// The queue as it is kept between launches: the current entry and what
+    /// follows. What already played is not kept, and a shuffled order stays as
+    /// it is without remembering the order it replaced.
+    nonisolated struct Saved: Codable, Sendable {
+        var tracks: [PlexMetadata]
+        var isRadio: [Bool]
+        var repeatMode: RepeatMode
+        var isAlbum: Bool
+    }
+
+    func saved(limit: Int = 500) -> Saved? {
+        guard let currentIndex else { return nil }
+        let kept = entries[currentIndex...].prefix(limit)
+        return Saved(tracks: kept.map(\.track), isRadio: kept.map(\.isRadio), repeatMode: repeatMode,
+                     isAlbum: isAlbum && currentIndex == 0 && kept.count == entries.count)
+    }
+
+    init(_ saved: Saved) {
+        entries = zip(saved.tracks, saved.isRadio).map { Entry(track: $0, isRadio: $1) }
+        currentIndex = entries.isEmpty ? nil : 0
+        repeatMode = saved.repeatMode
+        isAlbum = saved.isAlbum
+    }
 
     var current: Entry? { currentIndex.map { entries[$0] } }
     var isEmpty: Bool { entries.isEmpty }

@@ -66,13 +66,18 @@ struct MacRootView: View {
             .macPlexActionHost(open: { path.append($0) })
             .animation(.easeInOut(duration: 0.25), value: music.isNowPlayingShown)
             if let session = playback.session {
+                // Kept in the window while the picture is in Picture in Picture, so the
+                // engine's surface stays alive; it is only out of sight and out of reach.
                 MacVODPlayerView(session: session, player: session.player, close: { playback.close() })
+                    .opacity(playback.isPresented ? 1 : 0)
+                    .allowsHitTesting(playback.isPresented)
+                    .accessibilityHidden(!playback.isPresented)
                     .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: playback.session != nil)
+        .animation(.easeInOut(duration: 0.2), value: playback.isPresented)
         // A Plex title has the window to itself: the sidebar and back buttons step aside.
-        .toolbarVisibility(playback.session == nil && !music.isNowPlayingShown ? .automatic : .hidden, for: .windowToolbar)
+        .toolbarVisibility(!playback.isPresented && !music.isNowPlayingShown ? .automatic : .hidden, for: .windowToolbar)
         // The playback keys act only in this window, not in a sheet or Settings.
         .background(MacWindowReader {
             MacAppDelegate.mainWindow = $0
@@ -91,13 +96,19 @@ struct MacRootView: View {
                 music.pause()
             }
             // Music under a popped-out channel or a station would play over it.
-            music.onStart = { [live, multiview, radio] in
+            music.onStart = { [live, multiview, radio, playback] in
+                // A title in Picture in Picture leaves the window free to start music.
+                playback.close()
                 live.stop()
                 multiview.stopAll()
                 radio.stop()
             }
         }
         .task { await plex.verifyConnection() }
+        // Last launch's music queue comes back, paused, once its profile is in.
+        .task(id: "\(plex.isSignedIn)|\(profiles.needsProfileSelection)") {
+            if plex.isSignedIn, !profiles.needsProfileSelection { music.restoreQueue() }
+        }
         .onChange(of: section) { old, new in
             path = NavigationPath()
             // Live TV plays inside its page; leaving the page stops it, unless
@@ -113,10 +124,16 @@ struct MacRootView: View {
         }
         // One stream at a time: a channel or a multiview tile takes the sound from radio.
         .onChange(of: live.channel?.id) { _, channelID in
-            if channelID != nil { radio.stop() }
+            if channelID != nil {
+                radio.stop()
+                playback.close()
+            }
         }
         .onChange(of: multiview.tiles.count) { _, count in
-            if count > 0 { radio.stop() }
+            if count > 0 {
+                radio.stop()
+                playback.close()
+            }
         }
         // Hiding the row that is open moves to the first one left.
         .onChange(of: sidebarHidden) {
@@ -154,7 +171,7 @@ struct MacRootView: View {
         .onChange(of: profiles.needsProfileSelection, initial: true) { _, needed in
             if needed {
                 playback.close()
-                music.stop()
+                music.stop(keepingSavedQueue: true)
             }
             choosingProfile = needed && profiles.hasLoadedProfiles
         }

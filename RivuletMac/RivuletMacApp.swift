@@ -25,6 +25,8 @@ struct RivuletMacApp: App {
         // Plex's dashboard shows this next to the product name.
         PlexAPI.deviceName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
         LiveTVDataStore.foregroundNotification = NSApplication.didBecomeActiveNotification
+        // A laptop joins other people's networks; a LAN address there may be anyone.
+        PlexAuthManager.prefersSecureLocalConnections = true
         // Start the path monitor now; its first reading arrives after a delay.
         _ = NetworkPathMonitor.shared
 
@@ -69,8 +71,8 @@ struct RivuletMacApp: App {
                 .environment(radio)
                 .onAppear { vod.configureRemoteCommands() }
                 // The browsing layout needs room; a Plex title playing needs none.
-                .frame(minWidth: vod.session == nil ? 900 : 320,
-                       minHeight: vod.session == nil ? 520 : 180)
+                .frame(minWidth: vod.isPresented ? 320 : 900,
+                       minHeight: vod.isPresented ? 180 : 520)
                 .preferredColorScheme(.dark)
         }
         .defaultSize(width: 1360, height: 820)
@@ -213,6 +215,10 @@ private struct MacPlaybackCommands: Commands {
 
             Divider()
 
+            Button("Picture in Picture") { vod.startPictureInPicture() }
+                .keyboardShortcut("p", modifiers: [.control, .command])
+                .disabled(!vod.isPictureInPicturePossible || vod.isPictureInPictureActive)
+
             Button("Stop") {
                 if vod.session != nil {
                     vod.close()
@@ -303,6 +309,8 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
                       !(window.firstResponder is NSText) else { return false }
                 if let session = Self.vod?.session {
                     let player = session.player
+                    // In Picture in Picture the window is browsing: only Space is the title's.
+                    if Self.vod?.isPresented != true, keyCode != 49 { return false }
                     switch keyCode {
                     case 49: player.togglePlayPause()
                     case 123: Task { await player.skip(by: -MacSkipInterval.back) }
@@ -349,7 +357,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
     /// point and watched mark, a track's play, a Live TV channel's tuner. A slow server gets
     /// three seconds, not a hang.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let reports = [Self.vod?.close(), Self.playback?.stop(), Self.music?.stop()].compactMap { $0 }
+        let reports = [Self.vod?.close(), Self.playback?.stop(), Self.music?.quit()].compactMap { $0 }
             + (Self.multiview?.stopAll() ?? [])
         guard !reports.isEmpty else { return .terminateNow }
         Task {

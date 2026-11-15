@@ -18,7 +18,7 @@ AVPlayerLayer the app builds. Music does not use it: `MacMusicPlayer` wraps an
 - **Platform**: macOS 27+ (Golden Gate), Apple silicon only (`EXCLUDED_ARCHS = x86_64`; Xcode's "recommended settings" strip an explicit `ARCHS = arm64`, so not that)
 - **Language**: Swift 6 language mode, default actor isolation `MainActor`
 - **UI**: SwiftUI (`NavigationSplitView` shell), AppKit where SwiftUI has no answer (key monitor, full screen, pasteboard)
-- **AetherEngine**: upstream SwiftPM dependency (`superuser404notfound/AetherEngine`), `upToNextMajorVersion` from 7.53.0, kept current by Dependabot PRs to `Package.resolved` ( which itself requires macOS 15, below our 27 target). There is no fork: engine fixes need an upstream release or a host-side workaround. FFmpeg and libdovi arrive only through it, as embedded dynamic frameworks whose macOS minimum (14) must stay at or below the deployment target. Its LibTrueHD object-audio package is not even fetched: it sits behind a package trait, and Rivulet enables none. DTS:X decodes through FFmpeg's own `dca` decoder, so it needs no package of its own.
+- **AetherEngine**: upstream SwiftPM dependency (`superuser404notfound/AetherEngine`), `upToNextMajorVersion` from 7.58.0, kept current by Dependabot PRs to `Package.resolved` ( which itself requires macOS 15, below our 27 target). There is no fork: engine fixes need an upstream release or a host-side workaround. FFmpeg and libdovi arrive only through it, as embedded dynamic frameworks whose macOS minimum (14) must stay at or below the deployment target. Its LibTrueHD object-audio package is not even fetched: it sits behind a package trait, and Rivulet enables none. DTS:X decodes through FFmpeg's own `dca` decoder, so it needs no package of its own.
 - **App icon**: `RivuletMac/Assets.xcassets/AppIcon.appiconset`, rendered from `Branding/logo_square_1024.png` on the macOS icon grid (824 pt squircle on a 1024 canvas).
 - **Signing**: manual, with the free Personal Team's "Apple Development" certificate (`CODE_SIGN_IDENTITY = "Apple Development"`, `DEVELOPMENT_TEAM = LE2JMFSWAQ`). The team ID matters: macOS pins a keychain item to a *partition* (the team, or for teamless signatures the build's cdhash), and a self-signed or ad-hoc build gets a cdhash partition that mismatches on every update, so "Always Allow" never survives one. The certificate lasts a year, and its common name (with the person ID) stays the same when renewed. It chains through Apple's WWDR G3 intermediate, which must be in the keychain or `security find-identity -v -p codesigning` shows no valid identity. `KeychainHelper` keeps every secret in one keychain item (`vault`), folding in the older one-item-per-secret layout on first read. Sandboxed with outgoing and incoming network access, nothing else; hardened runtime on (`ENABLE_HARDENED_RUNTIME = YES`), so embedded frameworks must carry the same team signature.
 - **Updates**: Sparkle (`upToNextMajorVersion`, updated by Dependabot), checking the latest GitHub release's `appcast.xml` and installing quietly on quit. Sandboxed, so the installer goes through Sparkle's launcher XPC service (`SUEnableInstallerLauncherService` plus the `-spks` / `-spki` mach-lookup entitlements). Sparkle compares `CURRENT_PROJECT_VERSION`: raise it every release. Publish with `scripts/release.sh <version>`; the EdDSA private key lives in the login keychain, and losing it strands installed copies.
@@ -99,6 +99,15 @@ from the app, the app injects it at launch, before touching the stores:
   `PlexCertificateDelegate.trustsUnverifiedCertificate` (IPv4 literal,
   `*.plex.direct`, port 32400). Never send a Plex server request through
   `URLSession.shared`: it fails on servers behind a raw-IP or private certificate.
+- **Picture in Picture (Plex titles only)**: `MacPlaybackController` builds the
+  `AVPictureInPictureController` from `AetherPlayer.pictureInPictureSource` (the engine's
+  player layer, or its software display layer). While it is up, `MacVODPlayerView` stays
+  mounted at zero opacity so the engine's surface lives; test `isPresented`, not
+  `session != nil`, for anything about the window. The floating window's close button
+  ends the title; starting music, a channel or a station does too.
+- **Local connections prefer TLS**: `PlexAuthManager.prefersSecureLocalConnections` is set
+  at launch, ranking a local plex.direct address above plain HTTP and moving a saved
+  `http://` address onto one. A server with no working TLS address still uses HTTP.
 - **Routing (VOD)**: `MacPlexSession.stream` picks Original (direct play through
   Aether) or a capped Plex transcode from the Home or Away quality setting and,
   for Auto, a throughput probe. A direct-play file that never starts gets one
@@ -222,6 +231,24 @@ from the app, the app injects it at launch, before touching the stores:
   shows the chain, "ALAC · 24-bit · 96 kHz → 96 kHz · 24-bit" (`MacAudioOutput.describe`).
   Tracks at different rates have a short gap. Unverified on hardware: whether the
   sandbox allows the call (no entitlement is added).
+- **Listening history and ratings**: `viewCount` and `lastViewedAt` are the profile's own
+  plays (`MacMusicHistory.line`); `ratingCount` is every Plex listener's and draws the
+  popularity bar. Stars are set through `/:/rate` and held for the session in
+  `MacMusicRatings`, since open lists are not refetched.
+- **Release types**: an artist's albums are grouped by `MusicReleaseGroup`, read from Plex's
+  `Format` / `Subformat` tags. Album lists usually omit the tags, so
+  `MacPlexSession.releaseGroups` fetches each untagged album's own metadata (six at a time,
+  at most sixty, remembered for the session).
+- **The queue survives a quit**: `MacMusicQueueStore` keeps the current track and Up Next
+  (not history, at most 500) in Application Support/MusicQueue.json, with the server name
+  and profile id it belongs to; the position is `musicQueuePosition`. It comes back paused
+  and fetches nothing until Play (`resumeTime`). Stop forgets it; quitting and a locked
+  profile keep it.
+- **Crossfade** (`musicCrossfadeSeconds`, default off): `MacMusicPlayer` holds the next track
+  on a second `AVQueuePlayer` and swaps the two near the end of the playing one. Never
+  between consecutive tracks of one album, tracks shorter than three fades, or while the
+  output sample rate follows the music. With it off the second player is never made and
+  the gapless path is unchanged.
 - Radio refills Up Next below 5 tracks: sonically similar (`/nearest`) when the
   server has analysed the library, else random tracks from it.
 - Now Playing and the media keys: Plex title first, then music when it is
@@ -248,8 +275,9 @@ grep its key: a single hit means it is dead. Keys read today:
 `skipForwardSeconds`, `radioLayout`, `radioSort`, `musicOnlineInfo`, `sidebarOrder`,
 `sidebarHidden`, `settingsPane` (the selected Settings pane), `macChannelSort`,
 `macLiveTVLayout`, `macLiveTVShowsList`, `musicOutputSampleRate`, `musicCacheLimitMB`,
-`musicPrecacheCount`. Some are reached through a constant
-(`MusicInfoStore.enabledKey`, `MacSettingsPane.storageKey`, `MacMusicCache.limitKey`), so grep both. Sparkle keeps
+`musicPrecacheCount`, `musicCrossfadeSeconds`, `musicQueuePosition` (not a control: where the
+saved queue resumes). Some are reached through a constant
+(`MusicInfoStore.enabledKey`, `MacSettingsPane.storageKey`, `MacMusicCache.limitKey`, `MacMusicPlayback.crossfadeKey`, `MacMusicQueueStore.positionKey`), so grep both. Sparkle keeps
 its own (Settings > General).
 
 Settings is a sidebar of panes (`MacSettingsPane`, iPad-style icon tiles in system
