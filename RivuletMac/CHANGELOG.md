@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.65
+
 - Rows fit the window: tiles grow to fill the width and the last one is cut off on purpose, so it is clear there is more.
 - Rows settle on a tile when you scroll, and arrows under the pointer move a row a screenful at a time.
 - Music: Recently Played shows what you chose to play (the album, artist, playlist or song), newest first.
