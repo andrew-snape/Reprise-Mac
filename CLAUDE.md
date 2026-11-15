@@ -271,8 +271,8 @@ from the app, the app injects it at launch, before touching the stores:
   - Lyrics: the lyric stream (`streamType` 4) in a track's full metadata, fetched from its `key`,
     parsed by `MusicLyrics` (LRC or plain). Now Playing's side pane offers Up Next / Lyrics only
     when the track has some; timed lines follow the song and click to seek.
-  - Waveform: `/library/streams/{id}/levels?subsample=160` (dB every 100 ms) drawn as Now
-    Playing's seek bar, a 40 dB window under the loudest point; the plain slider until then.
+  - Waveform: `/library/streams/{id}/levels?subsample=110` (dB every 100 ms) drawn as Now
+    Playing's seek bar, scaled to the song's own range (10th percentile to peak, min 6 dB, curved); the plain slider until then.
   - UltraBlur: `/services/ultrablur/colors?url=<library path>` gives four corner colours, drawn
     as a `MeshGradient` behind Now Playing (note Plex's order: TL, TR, BR, BL).
   - History: `/status/sessions/history/all` for the library, newest first, as the library's

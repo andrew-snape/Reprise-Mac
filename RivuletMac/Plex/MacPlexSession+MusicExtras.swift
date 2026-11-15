@@ -60,11 +60,18 @@ extension MacPlexSession {
             extras.misses.insert(cacheKey)
             return nil
         }
-        // Silence reads as a very low dB; a 40 dB window below the loudest point
-        // keeps quiet passages visible without flattening the loud ones.
-        let top = levels.max() ?? 0
-        let floor = top - 40
-        let shape = levels.map { min(1, max(0, ($0 - floor) / 40)) }
+        // A mastered song spends most of its time within a few dB of its peak, so a
+        // fixed window draws a solid block. Scale to this song's own range instead:
+        // its quiet end (10th percentile, so a silent intro does not set it) to its
+        // loudest, at least 6 dB wide, curved so loud and louder still differ.
+        let sorted = levels.sorted()
+        let top = sorted.last ?? 0
+        let quiet = sorted[sorted.count / 10]
+        let span = max(top - quiet, 6)
+        let shape = levels.map { level -> Double in
+            let position = min(1, max(0, (level - quiet) / span))
+            return 0.08 + 0.92 * pow(position, 1.8)
+        }
         extras.levels[cacheKey] = shape
         return shape
     }

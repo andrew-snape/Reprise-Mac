@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.69
+
+- Music: the waveform shows each song's quiet and loud parts instead of a solid block.
+
 ## 0.68
 
 - Music: lyrics in Now Playing, following the song when Plex has them timed; click a line to jump to it.

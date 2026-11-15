@@ -14,7 +14,7 @@ struct MacMusicWaveformScrubber: View {
     @State private var shapeKey: String?
     @State private var dragging: Double?
 
-    private static let samples = 160
+    private static let samples = 110
 
     var body: some View {
         let track = music.current?.track
