@@ -388,14 +388,15 @@ struct MacPlexSearchView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 28) {
                         if let smart {
-                            MacPlexRail(title: smart.label, items: smart.items) { MacPlexPosterCard(item: $0) }
+                            MacPlexRail(title: smart.label, items: smart.items) { MacPlexPosterCard(item: $0, width: $1) }
                         }
                         ForEach(groups, id: \.title) { group in
-                            MacPlexRail(title: group.title, items: group.items) { item in
+                            MacPlexRail(title: group.title, items: group.items,
+                                        base: group.items.first?.type == "episode" ? 260 : MacTile.poster) { item, width in
                                 if item.type == "episode" {
-                                    MacPlexContinueCard(item: item, width: 260)
+                                    MacPlexContinueCard(item: item, width: width)
                                 } else {
-                                    MacPlexPosterCard(item: item)
+                                    MacPlexPosterCard(item: item, width: width)
                                 }
                             }
                         }

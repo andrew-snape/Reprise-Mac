@@ -62,7 +62,7 @@ struct MacPlexDetailView: View {
         }
         MacPlexCastRow(item: shown)
         if !related.isEmpty {
-            MacPlexRail(title: "More Like This", items: related) { MacPlexPosterCard(item: $0) }
+            MacPlexRail(title: "More Like This", items: related) { MacPlexPosterCard(item: $0, width: $1) }
         }
         MacPlexExtrasRow(item: shown)
         MacPlexInformationSection(item: shown).padding(.horizontal, MacTile.margin)
@@ -101,10 +101,10 @@ struct MacPlexDetailView: View {
             if episodesSeasonKey != seasonKey {
                 ProgressView().frame(maxWidth: .infinity).padding()
             } else {
-                MacShelfRow(items: episodes) {
+                MacShelfRow(items: episodes, base: 280) {
                     EmptyView()
-                } tile: { episode in
-                    MacPlexEpisodeCard(episode: episode, isNextUp: episode.id == nextUpID)
+                } tile: { episode, width in
+                    MacPlexEpisodeCard(episode: episode, isNextUp: episode.id == nextUpID, width: width)
                 }
             }
         }
@@ -328,13 +328,14 @@ private struct MacPlexEpisodeCard: View {
     private let watchStamp: [Int]
     @Environment(\.plexActions) private var actions
 
-    init(episode: PlexMetadata, isNextUp: Bool) {
+    private let width: CGFloat
+
+    init(episode: PlexMetadata, isNextUp: Bool, width: CGFloat) {
         self.episode = episode
         self.isNextUp = isNextUp
+        self.width = width
         watchStamp = episode.watchStamp
     }
-
-    private let width: CGFloat = 280
 
     var body: some View {
         Button { actions.play(episode) } label: {
@@ -399,10 +400,10 @@ private struct MacPlexCastRow: View {
     var body: some View {
         let people = self.people
         if !people.isEmpty {
-            MacShelfRow(items: people) {
+            MacShelfRow(items: people, base: MacTile.person + 20) {
                 Text("Cast & Crew").font(.title2.bold())
-            } tile: { person in
-                let width = MacTile.person
+            } tile: { person, tileWidth in
+                let width = tileWidth - 20
                 let pixels = Int((width * displayScale).rounded(.up))
                 VStack(spacing: 6) {
                     MacPlexImage(url: plex.imageURL(path: person.thumb, width: pixels, height: pixels))
@@ -444,10 +445,9 @@ private struct MacPlexExtrasRow: View {
     var body: some View {
         let extras = self.extras
         if !extras.isEmpty {
-            MacShelfRow(items: extras) {
+            MacShelfRow(items: extras, base: 260) {
                 Text("Extras").font(.title2.bold())
-            } tile: { extra in
-                let width: CGFloat = 260
+            } tile: { extra, width in
                 Button { actions.play(extra) } label: {
                     VStack(alignment: .leading, spacing: 6) {
                         MacPlexArtwork(item: extra, kind: .thumb, width: width, aspectRatio: 16 / 9)

@@ -14,6 +14,7 @@ extension MacMusicPlayback {
     /// Plays, queues or starts radio from an artist, album, playlist or track.
     func perform(_ action: MacMusicAction, on item: PlexMetadata) {
         guard let plex else { return }
+        if action == .play || action == .shuffle || action == .radio { MacMusicRecents.shared.record(item) }
         if action == .radio, item.type == "track" {
             startRadio(from: item)
             return
@@ -134,7 +135,10 @@ struct MacMusicTileLink: View {
     var body: some View {
         Group {
             if item.type == "track" {
-                Button { music.play([item]) } label: { MacMusicTile(item: item, width: width) }
+                Button {
+                    MacMusicRecents.shared.record(item)
+                    music.play([item])
+                } label: { MacMusicTile(item: item, width: width) }
             } else {
                 NavigationLink(value: item) { MacMusicTile(item: item, width: width) }
             }
@@ -185,11 +189,19 @@ struct MacMusicLibraryView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 28) {
-                ForEach(hubs) { hub in
+                let recents = MacMusicRecents.shared.items
+                if !recents.isEmpty {
+                    MacShelfRow(items: recents) {
+                        Text("Recently Played").font(.title2.bold())
+                    } tile: { item, width in
+                        MacMusicTileLink(item: item, width: width)
+                    }
+                }
+                ForEach(recents.isEmpty ? hubs : hubs.filter { !$0.isRecentlyPlayed }) { hub in
                     MacShelfRow(items: hub.items) {
                         Text(hub.displayTitle).font(.title2.bold())
-                    } tile: { item in
-                        MacMusicTileLink(item: item)
+                    } tile: { item, width in
+                        MacMusicTileLink(item: item, width: width)
                     }
                 }
                 Picker("Show", selection: $kind) {
@@ -276,6 +288,15 @@ struct MacMusicLibraryView: View {
             items = (items + page.items).uniqued()
             self.total = page.items.isEmpty ? items.count : page.totalSize
         }
+    }
+}
+
+private extension PlexHub {
+    /// Plex's own recently played row, which the local list stands in for.
+    var isRecentlyPlayed: Bool {
+        let id = (hubIdentifier ?? "").lowercased()
+        return id.contains("recent") && (id.contains("played") || id.contains("listen") || id.contains("viewed"))
+            || title == "Recently Played"
     }
 }
 
@@ -392,15 +413,15 @@ struct MacMusicArtistView: View {
                 ForEach(similar) { hub in
                     MacShelfRow(items: hub.items) {
                         Text(hub.displayTitle).font(.title2.bold())
-                    } tile: { item in
-                        MacMusicTileLink(item: item)
+                    } tile: { item, width in
+                        MacMusicTileLink(item: item, width: width)
                     }
                 }
                 if similar.isEmpty, !fallbackSimilar.isEmpty {
                     MacShelfRow(items: fallbackSimilar) {
                         Text("Similar Artists").font(.title2.bold())
-                    } tile: { item in
-                        MacMusicTileLink(item: item)
+                    } tile: { item, width in
+                        MacMusicTileLink(item: item, width: width)
                     }
                 }
             }
@@ -580,7 +601,8 @@ struct MacMusicAlbumView: View {
                         isAlbum: !isPlaylist,
                         showsArtwork: isPlaylist,
                         albumArtist: isPlaylist ? nil : shown.parentTitle,
-                        showsPopularity: !isPlaylist
+                        showsPopularity: !isPlaylist,
+                        container: shown
                     )
                 }
                 if let summary = shown.summary, !summary.isEmpty {
@@ -606,8 +628,8 @@ struct MacMusicAlbumView: View {
                 ForEach(related) { hub in
                     MacShelfRow(items: hub.items) {
                         Text(hub.displayTitle).font(.title2.bold())
-                    } tile: { item in
-                        MacMusicTileLink(item: item)
+                    } tile: { item, width in
+                        MacMusicTileLink(item: item, width: width)
                     }
                 }
             }
@@ -667,6 +689,9 @@ struct MacMusicTrackList: View {
     var showsPopularity = false
     /// The listener's own play count on each row.
     var showsPlays = false
+    /// The album or playlist the list is, remembered as what was played;
+    /// without one the row's own song is.
+    var container: PlexMetadata?
     @Environment(MacMusicPlayback.self) private var music
 
     /// Play counts on a log scale against the most played; nil with no counts.
@@ -715,7 +740,10 @@ struct MacMusicTrackList: View {
                         showsArtist: row.track.trackArtist != albumArtist,
                         popularity: popularity(of: row.track),
                         showsPlays: showsPlays,
-                        play: { music.play(tracks, from: row.offset, isAlbum: isAlbum) }
+                        play: {
+                            MacMusicRecents.shared.record(container ?? row.track)
+                            music.play(tracks, from: row.offset, isAlbum: isAlbum)
+                        }
                     )
                 }
             }

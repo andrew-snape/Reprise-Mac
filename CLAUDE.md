@@ -239,6 +239,13 @@ from the app, the app injects it at launch, before touching the stores:
   `Format` / `Subformat` tags. Album lists usually omit the tags, so
   `MacPlexSession.releaseGroups` fetches each untagged album's own metadata (six at a time,
   at most sixty, remembered for the session).
+- **Recently Played is local**: `MacMusicRecents` keeps what was chosen to play here (the
+  artist, album, playlist or song, not each track that followed), at most 40, in
+  Application Support/MusicRecents.json with the same server and profile owner as the
+  queue. Recorded in `MacMusicPlayback.perform` (play, shuffle, radio), a track tile, and
+  `MacMusicTrackList` (its `container`, else the row's song). While it has anything, the
+  library page drops Plex's own recently played hub. Plays from other apps are not in it.
+  Cleared on sign-out.
 - **The queue survives a quit**: `MacMusicQueueStore` keeps the current track and Up Next
   (not history, at most 500) in Application Support/MusicQueue.json, with the server name
   and profile id it belongs to; the position is `musicQueuePosition`. It comes back paused
@@ -254,6 +261,14 @@ from the app, the app injects it at launch, before touching the stores:
 - Now Playing and the media keys: Plex title first, then music when it is
   playing or no channel is on (`MacAppDelegate.musicInFront`), then Live TV.
   `MacPlaybackController` owns all of it.
+
+### Rows
+
+`MacShelfRow` hands each tile its width: tiles grow from `base` (up to `MacTile.growth`)
+so a row ends `MacTile.peek` of the way through a tile, unless everything already fits.
+A tile must draw at the width it is given. Rows snap to tiles (`viewAligned`) and page by
+the number of whole tiles showing, from arrows shown on hover. Artwork URLs round up to
+120 px steps, so resizing the window refetches little.
 
 ### Watch state
 

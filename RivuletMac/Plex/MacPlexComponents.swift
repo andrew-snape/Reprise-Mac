@@ -175,6 +175,10 @@ enum MacTile {
     static let person: CGFloat = 96
     static let gap: CGFloat = 16
     static let margin: CGFloat = 28
+    /// How much of the next tile a row leaves showing, so it reads as scrollable.
+    static let peek: CGFloat = 0.35
+    /// A row's tiles grow to fill the width, up to this many times their size.
+    static let growth: CGFloat = 1.3
 }
 
 struct MacPlexPosterCard: View {
@@ -309,24 +313,104 @@ struct MacPlexShelfHeader: View {
     }
 }
 
-/// A titled horizontal row. Scroll sideways with a trackpad, or Shift and the wheel.
+/// A titled horizontal row. Scroll sideways with a trackpad, Shift and the
+/// wheel, or the arrows that show under the pointer.
+///
+/// Tiles grow from `base` so the row ends part-way through one (never on a
+/// clean edge that hides there is more), and scrolling settles on a tile.
 struct MacShelfRow<Items: RandomAccessCollection, Header: View, Tile: View>: View where Items.Element: Identifiable {
     let items: Items
+    /// A tile's width before it is fitted to the row.
+    var base: CGFloat = MacTile.poster
     @ViewBuilder let header: () -> Header
-    @ViewBuilder let tile: (Items.Element) -> Tile
+    /// The item and the width to draw it at.
+    @ViewBuilder let tile: (Items.Element, CGFloat) -> Tile
+
+    @State private var rowWidth: CGFloat = 0
+    @State private var leading: Items.Element.ID?
+    @State private var ends = Ends()
+    @State private var isHovered = false
+
+    private struct Ends: Equatable {
+        var back = false
+        var forward = false
+    }
+
+    /// The tile width for this row, and how many whole tiles show at once.
+    private var fit: (width: CGFloat, page: Int) {
+        let available = rowWidth - MacTile.margin * 2
+        let stride = base + MacTile.gap
+        guard available > stride else { return (base, 1) }
+        let page = max(1, Int((available - base * MacTile.peek) / stride))
+        // Everything already shows: nothing to hint at, so nothing to stretch.
+        if CGFloat(items.count) * stride - MacTile.gap <= available { return (base, page) }
+        let fitted = (available - CGFloat(page) * MacTile.gap) / (CGFloat(page) + MacTile.peek)
+        return (min(max(fitted.rounded(.down), base), (base * MacTile.growth).rounded(.down)), page)
+    }
 
     var body: some View {
+        let fit = fit
         VStack(alignment: .leading, spacing: 10) {
             header().padding(.horizontal, MacTile.margin)
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: MacTile.gap) {
-                    ForEach(items) { tile($0) }
+                    ForEach(items) { tile($0, fit.width) }
                 }
-                .padding(.horizontal, MacTile.margin)
+                .scrollTargetLayout()
                 .padding(.vertical, 4)
             }
-            .scrollIndicators(.automatic)
+            .contentMargins(.horizontal, MacTile.margin, for: .scrollContent)
+            .scrollTargetBehavior(.viewAligned)
+            .scrollPosition(id: $leading, anchor: .leading)
+            .scrollIndicators(.never)
+            .onScrollGeometryChange(for: Ends.self) { geometry in
+                // Slack of one margin: whether the margins count as content differs by edge.
+                Ends(back: geometry.visibleRect.minX > 1,
+                     forward: geometry.visibleRect.maxX < geometry.contentSize.width - MacTile.margin - 1)
+            } action: { _, new in
+                ends = new
+            }
+            .overlay(alignment: .leading) {
+                if isHovered, ends.back {
+                    arrow("chevron.left", label: "Scroll Back") { page(by: -fit.page) }
+                }
+            }
+            .overlay(alignment: .trailing) {
+                if isHovered, ends.forward {
+                    arrow("chevron.right", label: "Scroll Forward") { page(by: fit.page) }
+                }
+            }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rowWidth = $0 }
+        .onHover { isHovered = $0 }
+        .animation(.easeOut(duration: 0.15), value: isHovered)
+        .animation(.easeOut(duration: 0.15), value: ends)
+    }
+
+    private func arrow(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.headline)
+                .frame(width: 34, height: 34)
+                .background(.regularMaterial, in: Circle())
+                .shadow(color: .black.opacity(0.25), radius: 4, y: 1)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .padding(.horizontal, 10)
+        // Level with the artwork rather than the captions under it.
+        .offset(y: -18)
+        .transition(.opacity)
+    }
+
+    /// Moves the row a screenful of tiles.
+    private func page(by count: Int) {
+        let ids = items.map(\.id)
+        guard !ids.isEmpty else { return }
+        let current = leading.flatMap { ids.firstIndex(of: $0) } ?? 0
+        let target = min(max(current + count, 0), ids.count - 1)
+        withAnimation(.snappy) { leading = ids[target] }
     }
 }
 
@@ -335,11 +419,12 @@ struct MacPlexShelfView: View {
     let hub: PlexHub
 
     var body: some View {
-        MacPlexRail(title: hub.displayTitle, route: MacPlexHubRoute(hub: hub), items: hub.items) { item in
+        MacPlexRail(title: hub.displayTitle, route: MacPlexHubRoute(hub: hub), items: hub.items,
+                    base: hub.isContinueWatching ? MacTile.landscape : MacTile.poster) { item, width in
             if hub.isContinueWatching {
-                MacPlexContinueCard(item: item)
+                MacPlexContinueCard(item: item, width: width)
             } else {
-                MacPlexPosterCard(item: item)
+                MacPlexPosterCard(item: item, width: width)
             }
         }
     }
@@ -350,13 +435,14 @@ struct MacPlexRail<Tile: View>: View {
     let title: String
     var route: MacPlexHubRoute?
     let items: [PlexMetadata]
-    @ViewBuilder let tile: (PlexMetadata) -> Tile
+    var base: CGFloat = MacTile.poster
+    @ViewBuilder let tile: (PlexMetadata, CGFloat) -> Tile
 
     var body: some View {
-        MacShelfRow(items: items) {
+        MacShelfRow(items: items, base: base) {
             MacPlexShelfHeader(title: title, route: route)
-        } tile: { item in
-            NavigationLink(value: item) { tile(item) }
+        } tile: { item, width in
+            NavigationLink(value: item) { tile(item, width) }
                 .buttonStyle(.plain)
                 .plexContextMenu(item)
         }
