@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Music: a large lossless track no longer starts, stops for half a minute, then carries on.
+
 ## 0.65
 
 - Rows fit the window: tiles grow to fill the width and the last one is cut off on purpose, so it is clear there is more.

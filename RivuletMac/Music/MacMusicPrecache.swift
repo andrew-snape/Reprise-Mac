@@ -137,7 +137,7 @@ final class MacMusicPrecache {
                 }
                 keys[job.id] = key
                 pinFiles()
-                let temp = try await MacMusicDownload.fetch(source.url, expectedSize: key.size)
+                let temp = try await Self.fetch(source.url, expectedSize: key.size)
                 let file = try await MacMusicCache.shared.store(temp, for: key)
                 done.insert(job.id)
                 onCached?(job.id, file)
@@ -145,6 +145,23 @@ final class MacMusicPrecache {
                 if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled { return }
                 failed.insert(job.id)
                 Self.log.error("Download failed, code \(Self.code(of: error))")
+            }
+        }
+    }
+
+    /// The server sometimes drops a connection or answers 503 when several
+    /// requests for files land together; a moment later the same request works.
+    private static func fetch(_ url: URL, expectedSize: Int) async throws -> URL {
+        var attempt = 0
+        while true {
+            do {
+                return try await MacMusicDownload.fetch(url, expectedSize: expectedSize)
+            } catch {
+                attempt += 1
+                let code = code(of: error)
+                guard attempt < 4, code == URLError.networkConnectionLost.rawValue || code == 503 else { throw error }
+                log.info("Download dropped, code \(code); trying again")
+                try await Task.sleep(for: .milliseconds(400 * attempt))
             }
         }
     }

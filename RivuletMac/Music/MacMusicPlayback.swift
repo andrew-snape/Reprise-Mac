@@ -42,6 +42,8 @@ final class MacMusicPlayback {
     /// The playing track's source, with its full metadata.
     private(set) var current: MacMusicSource?
     @ObservationIgnored private var next: MacMusicSource?
+    /// The playing track's downloaded file, for when its stream stalls.
+    @ObservationIgnored private var currentFile: (id: UUID, url: URL)?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private var nextTask: Task<Void, Never>?
@@ -380,16 +382,37 @@ final class MacMusicPlayback {
         return seconds
     }
 
+    /// While the track is starting or stalled only its own file downloads: a
+    /// whole-file fetch outruns AVPlayer's stream, and the file then takes over.
     private func updatePrecache() {
+        let waiting = player.state == .loading
         precache.update(
             current: current,
-            upcoming: queue.upcoming(MacMusicPrecache.count),
-            canDownload: current != nil && (player.state == .playing || player.state == .paused))
+            upcoming: waiting ? [] : queue.upcoming(MacMusicPrecache.count),
+            canDownload: current != nil && (waiting || player.state == .playing || player.state == .paused))
+    }
+
+    /// The playing track's file has arrived while its stream is not keeping up
+    /// (or has not started): play the file from the same place.
+    private func playCurrentFromFile() {
+        guard let current, !current.isCached, let file = currentFile, file.id == current.entryID else { return }
+        currentFile = nil
+        let cached = current.withURL(file.url)
+        self.current = cached
+        next = nil
+        player.load(cached, gain: gain(for: cached), at: player.currentTime, autoplay: player.wantsToPlay)
+        queueChanged()
     }
 
     /// A queued song finished downloading: swap its network URL for the file,
     /// unless it is about to start.
     private func precached(_ id: UUID, file: URL) {
+        if let current, current.entryID == id, !current.isCached {
+            // Left alone while it plays; a later stall picks the file up.
+            currentFile = (id, file)
+            if player.state != .playing { playCurrentFromFile() }
+            return
+        }
         guard let next, next.entryID == id, !next.isCached, player.nextID == id,
               player.duration - player.currentTime > 10 else { return }
         let cached = next.withURL(file)
@@ -534,6 +557,7 @@ final class MacMusicPlayback {
             report("paused")
             savePosition()
         case .ended: playerRanOut()
+        case .loading: playCurrentFromFile()
         default: break
         }
     }

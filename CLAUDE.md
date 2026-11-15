@@ -191,6 +191,10 @@ from the app, the app injects it at launch, before touching the stores:
   cannot open (Opus, Vorbis, WMA, DSD) and relay connections get an AAC 320
   transcode (`buildMusicTranscodeURL`); a direct file that fails retries once as one.
 - Plex hears about tracks through the same timeline and scrobble calls as video.
+  Each play of a track has its own `X-Plex-Session-Identifier` (`MacMusicSource.sessionID`),
+  on the file URL and on every report. Without one Plex files both under the device: the
+  "stopped" for the last track ends the session the new file is read on ("Denying access to
+  direct play of part ... due to terminated session", a 503), and AVPlayer waits 29 s to retry.
 - Loudness levelling uses Plex's `gain` / `albumGain` / `peak` on the audio
   stream (only in full metadata, so each track's source fetches it). Album gain
   for an album in order, track gain otherwise; the player can only turn down.
@@ -219,7 +223,9 @@ from the app, the app injects it at launch, before touching the stores:
 - **Download Ahead** (`musicPrecacheCount`) fetches the next N tracks (then the playing
   one, Home only) one at a time, through its own `URLSession` with
   `PlexCertificateDelegate` and no `URLCache`, only while the player is playing or
-  paused. A stall cancels it. Nothing downloads on an away path or relay. Log `URLError`
+  paused. While the playing track is starting or stalled only its own file downloads, and
+  once it lands `playCurrentFromFile` reloads the track from the file at the same place
+  (AVPlayer's own stream of a big lossless file can sit waiting for half a minute). Nothing downloads on an away path or relay. Log `URLError`
   codes only: their user info carries the token-bearing URL.
 - **Output sample rate** (`musicOutputSampleRate`: Don't Change, Match Each Track, or a
   fixed rate) sets the default output device's nominal rate through CoreAudio. Only
