@@ -2,7 +2,10 @@
 
 ## Unreleased
 
+## 0.67
+
 - Music: tracks no longer stop for half a minute when the next one starts loading or downloading (0.66 fixed this only in part).
+- Music: Download Ahead gives way to whatever is playing.
 
 ## 0.66
 
