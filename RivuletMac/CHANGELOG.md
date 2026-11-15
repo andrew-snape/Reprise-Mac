@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.64
+
 - Picture in Picture for Plex titles: the button beside Full Screen, or ⌃⌘P. Browse the app while the picture floats.
 - On your home network, Rivulet now prefers your server's secure address over plain HTTP.
 - Newer playback engine (AetherEngine 7.67.1).
