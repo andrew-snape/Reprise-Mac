@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.68
+
 - Music: lyrics in Now Playing, following the song when Plex has them timed; click a line to jump to it.
 - Music: Now Playing's seek bar shows the shape of the song.
 - Music: Now Playing's background uses Plex's own colours from the cover.
