@@ -137,7 +137,12 @@ final class MacMusicPrecache {
                 }
                 keys[job.id] = key
                 pinFiles()
-                let temp = try await Self.fetch(source.url, expectedSize: key.size)
+                // Upcoming files are marked as downloads, which Plex serves behind
+                // playback; the playing track's file is fetched at full speed.
+                let isCurrent = currentSource?.entryID == job.id
+                let url = isCurrent ? source.url
+                    : source.url.appending(queryItems: [URLQueryItem(name: "download", value: "1")])
+                let temp = try await Self.fetch(url, expectedSize: key.size)
                 let file = try await MacMusicCache.shared.store(temp, for: key)
                 done.insert(job.id)
                 onCached?(job.id, file)

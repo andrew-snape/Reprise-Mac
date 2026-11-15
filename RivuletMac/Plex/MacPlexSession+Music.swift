@@ -15,10 +15,10 @@ nonisolated struct MacMusicSource: Sendable {
     let transcodeSessionID: String?
     /// Names the file in the music cache; nil for a transcode.
     var cacheKey: MacMusicCacheKey? = nil
-    /// This play of this track, on the file request and on every timeline report.
-    /// Without it Plex files both under the device, and the "stopped" sent for the
-    /// track before ends the session the new track's file is being read on: the
-    /// server drops that request, and AVPlayer waits 29 seconds to ask again.
+    /// The player's session (`MacPlexSession.musicSessionID`), on the file request
+    /// and on every timeline report. Plex allows one direct-play session per device:
+    /// opening a file under a new id, or a "stopped" for the id, ends the old one
+    /// and drops its reads, and AVPlayer then waits 29 seconds to ask again.
     var sessionID: String? = nil
 
     var isTranscode: Bool { transcodeSessionID != nil }
@@ -270,12 +270,12 @@ extension MacPlexSession {
         // A kept file plays even on a relay connection.
         if !forceTranscode, let key, let file = await MacMusicCache.shared.file(for: key) {
             return MacMusicSource(entryID: entryID, track: full, url: file, serverURL: serverURL, token: token,
-                                  transcodeSessionID: nil, cacheKey: key, sessionID: UUID().uuidString)
+                                  transcodeSessionID: nil, cacheKey: key, sessionID: musicSessionID)
         }
         if !forceTranscode, !PlexRelay.isRelayURL(serverURL), Self.avFoundationPlays(media),
            let partKey = media?.Part?.first?.key,
            let plain = Self.directPlayURL(serverURL: serverURL, token: token, partKey: partKey) {
-            let session = UUID().uuidString
+            let session = musicSessionID
             let url = plain.appending(queryItems: [URLQueryItem(name: "X-Plex-Session-Identifier", value: session)])
             return MacMusicSource(entryID: entryID, track: full, url: url, serverURL: serverURL, token: token,
                                   transcodeSessionID: nil, cacheKey: key, sessionID: session)

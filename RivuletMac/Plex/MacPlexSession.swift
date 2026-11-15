@@ -50,6 +50,8 @@ final class MacPlexSession {
     private(set) var watchStateRevision = 0
     /// Bumped on a server or profile switch; the tab stacks rebuild on it.
     private(set) var sessionGeneration = 0
+    /// The music player's Plex session, shared by every track until music stops.
+    @ObservationIgnored var musicSessionID = UUID().uuidString
     private(set) var selectedServerName: String?
     private(set) var profileImageURL: URL?
     private(set) var profileDisplayName: String?

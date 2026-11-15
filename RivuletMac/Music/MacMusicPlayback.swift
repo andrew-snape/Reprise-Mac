@@ -268,7 +268,7 @@ final class MacMusicPlayback {
     /// Stops and empties the queue. The task ends once Plex has the final report.
     @discardableResult
     func stop(keepingSavedQueue: Bool = false) -> Task<Void, Never>? {
-        let reported = finishCurrent()
+        let reported = finishCurrent(ending: true)
         saveTask?.cancel()
         resumeTime = nil
         // Stop means the queue is done with; before the saved one was looked at
@@ -466,8 +466,11 @@ final class MacMusicPlayback {
     /// Nothing was queued behind the track that finished: the queue ran
     /// out, or its next track was not ready in time.
     private func playerRanOut() {
+        guard queue.entryAfterCurrent != nil else {
+            finishCurrent(completed: true, ending: true)
+            return
+        }
         finishCurrent(completed: true)
-        guard queue.entryAfterCurrent != nil else { return }
         queue.advance()
         loadCurrent()
     }
@@ -578,18 +581,21 @@ final class MacMusicPlayback {
         Task { await plex.reportMusic(current, time: time, state: state) }
     }
 
-    /// Stopped, then a play counted when the track got past the watched
-    /// ceiling. `completed` is a track that played to its end.
+    /// A play counted when the track got past the watched ceiling. `completed` is a
+    /// track that played to its end. Only `ending` (music stops) tells Plex "stopped"
+    /// and starts a new session: between tracks the next one's "playing" takes over,
+    /// since a "stopped" would end the session the next file is being read on.
     @discardableResult
-    private func finishCurrent(completed: Bool = false) -> Task<Void, Never>? {
+    private func finishCurrent(completed: Bool = false, ending: Bool = false) -> Task<Void, Never>? {
         guard !reportedStopped, let current, let plex else { return nil }
         reportedStopped = true
         let runtime = current.track.durationSeconds > 0 ? current.track.durationSeconds : player.duration
         let time = completed ? runtime : player.currentTime
         let played = completed || (WatchProgressPolicy.progress(offsetSeconds: time, runtimeSeconds: runtime) ?? 0)
             >= WatchProgressPolicy.completionThreshold
+        if ending { plex.musicSessionID = UUID().uuidString }
         return Task {
-            await plex.reportMusic(current, time: time, state: "stopped")
+            if ending { await plex.reportMusic(current, time: time, state: "stopped") }
             await plex.finishMusic(current, played: played)
         }
     }
