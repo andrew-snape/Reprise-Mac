@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.66
+
 - Music: a large lossless track no longer starts, stops for half a minute, then carries on.
 
 ## 0.65
