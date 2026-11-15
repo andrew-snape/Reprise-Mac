@@ -29,7 +29,8 @@ final class MacRadioPlayback {
     private(set) var station: M3UParser.ParsedChannel?
     private(set) var state: State = .idle
     /// What the station says is on, from its stream's metadata (ICY on
-    /// Shoutcast and Icecast, ID3 in HLS). Nil when it sends none.
+    /// Shoutcast and Icecast, ID3 in HLS) or, for a Triton station, Triton's
+    /// now-playing feed. Nil when neither names anything.
     private(set) var streamTitle: String?
     /// The cover of the song on, when it could be found; the station's logo stands in until then.
     private(set) var cover: NSImage?
@@ -61,6 +62,7 @@ final class MacRadioPlayback {
     @ObservationIgnored private var metadataReader: RadioMetadataReader?
     @ObservationIgnored private var qualityTask: Task<Void, Never>?
     @ObservationIgnored private var coverTask: Task<Void, Never>?
+    @ObservationIgnored private var nowPlayingTask: Task<Void, Never>?
 
     init() {
         statusTask = Task { [weak self, player] in
@@ -85,9 +87,8 @@ final class MacRadioPlayback {
         resetSongs()
         let reader = RadioMetadataReader { [weak self, weak item] title in
             // A late title from the station before is dropped.
-            guard let self, let item, self.player.currentItem === item else { return }
-            self.streamTitle = title
-            self.songChanged()
+            guard let self, let item else { return }
+            self.takeTitle(title, from: item)
         }
         item.add(reader.output)
         metadataReader = reader
@@ -95,11 +96,17 @@ final class MacRadioPlayback {
         headerQuality = nil
         trackQuality = nil
         qualityTask?.cancel()
+        nowPlayingTask?.cancel()
         qualityTask = Task { [weak self] in
-            let found = await RadioHeaderProbe.quality(of: newStation.streamURL)
+            let found = await RadioHeaderProbe.probe(of: newStation.streamURL)
             guard let self, !Task.isCancelled, self.player.currentItem === item else { return }
-            self.headerQuality = found
+            self.headerQuality = found.quality
             self.rememberQuality()
+            // The saved address often redirects onto Triton's host (iHeart, ARN, Nova).
+            if let mount = found.url.flatMap(RadioTritonNowPlaying.mount(of:))
+                ?? RadioTritonNowPlaying.mount(of: newStation.streamURL) {
+                self.followTriton(mount: mount, for: item)
+            }
         }
         itemTask?.cancel()
         itemTask = Task { [weak self] in
@@ -134,6 +141,7 @@ final class MacRadioPlayback {
     func stop() {
         itemTask?.cancel()
         qualityTask?.cancel()
+        nowPlayingTask?.cancel()
         player.replaceCurrentItem(with: nil)
         metadataReader = nil
         station = nil
@@ -148,6 +156,43 @@ final class MacRadioPlayback {
         coverTask?.cancel()
         cover = nil
         recentSongs = []
+    }
+
+    /// A title from the stream or the station's feed, for the item that asked.
+    /// A late title from the station before is dropped, and a repeat changes nothing.
+    private func takeTitle(_ title: String?, from item: AVPlayerItem) {
+        guard player.currentItem === item, title != streamTitle else { return }
+        streamTitle = title
+        songChanged()
+    }
+
+    /// Polls Triton's feed while the station plays. The song shown is the one
+    /// under the play head: an HLS stream's `currentDate()` is the broadcast time
+    /// heard, so the title changes with the music, not half a minute ahead of it.
+    /// Past a song's end (an ad break) the title clears.
+    private func followTriton(mount: String, for item: AVPlayerItem) {
+        radioLog.notice("Triton now playing for \(mount, privacy: .public)")
+        nowPlayingTask?.cancel()
+        nowPlayingTask = Task { [weak self, weak item] in
+            var tracks: [RadioTritonNowPlaying.Track] = []
+            var fetched = Date.distantPast
+            while !Task.isCancelled {
+                guard let self, let item, self.player.currentItem === item else { return }
+                let paused = self.state == .paused
+                if !paused, Date().timeIntervalSince(fetched) >= 20 {
+                    tracks = await RadioTritonNowPlaying.tracks(mount: mount)
+                    fetched = Date()
+                    guard !Task.isCancelled, self.player.currentItem === item else { return }
+                }
+                if !paused, !tracks.isEmpty {
+                    let heard = item.currentDate() ?? Date()
+                    let track = tracks.first { $0.start <= heard }
+                    let over = track.flatMap { track in track.duration.map { heard > track.start + $0 + 10 } } ?? false
+                    self.takeTitle(track == nil || over ? nil : track?.text, from: item)
+                }
+                try? await Task.sleep(for: .seconds(5))
+            }
+        }
     }
 
     /// The station named a new song: note it, and look for its cover.
@@ -370,7 +415,8 @@ nonisolated enum RadioCoverLookup {
 /// `icy-br` or `ice-audio-info` for the bitrate and sample rate, the content
 /// type for the codec, `icy-name` for the station. Only the headers are read;
 /// the request is cancelled before the sound arrives. Nil when the server
-/// announces nothing, as an HLS stream never does.
+/// announces nothing, as an HLS stream never does. The probe also hands back
+/// the address the stream ended up at after redirects.
 nonisolated enum RadioHeaderProbe {
     @concurrent
     static func name(of url: URL) async -> String? {
@@ -382,9 +428,12 @@ nonisolated enum RadioHeaderProbe {
     }
 
     @concurrent
-    static func quality(of url: URL) async -> RadioQuality? {
-        guard let http = await response(for: url) else { return nil }
+    static func probe(of url: URL) async -> (quality: RadioQuality?, url: URL?) {
+        guard let http = await response(for: url) else { return (nil, nil) }
+        return (quality(from: http), http.url)
+    }
 
+    private static func quality(from http: HTTPURLResponse) -> RadioQuality? {
         var info: [String: String] = [:]
         for pair in (http.value(forHTTPHeaderField: "ice-audio-info") ?? "").split(separator: ";") {
             let parts = pair.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }

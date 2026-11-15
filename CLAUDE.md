@@ -121,6 +121,10 @@ from the app, the app injects it at launch, before touching the stores:
   Radio, where it filters that page: channels by name, number and anything in
   the guide from now on; stations by name and group. Radio shows the song a
   station sends (ICY StreamTitle, or ID3 in HLS) in its bar and Now Playing,
+  or, for a Triton (StreamTheWorld) station, Triton's public now-playing feed
+  (`RadioTritonNowPlaying`, mount read off the address after redirects): its HLS
+  carries the song only in packed-AAC ID3, which AVPlayer drops. The feed's song
+  is matched to the play head with `AVPlayerItem.currentDate()`,
   and its quality: the bitrate from the server's `icy-br` / `ice-audio-info`
   headers (a header-only request, cancelled before the sound), else the player's,
   and the codec from the decoded track. Each station's last quality is saved, so
