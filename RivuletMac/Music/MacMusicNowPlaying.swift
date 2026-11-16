@@ -40,8 +40,7 @@ struct MacMusicBar: View {
 
                 HStack(spacing: 12) {
                     MacMusicVolume().frame(width: 110)
-                    MacAirPlayButton(tint: .secondaryLabelColor)
-                        .frame(width: 22, height: 22)
+                    MacAirPlayButton(player: music.player.routePlayer, tint: .secondaryLabelColor, size: 22)
                         .help("AirPlay")
                     Button { music.isNowPlayingShown = true } label: {
                         Image(systemName: "list.bullet")

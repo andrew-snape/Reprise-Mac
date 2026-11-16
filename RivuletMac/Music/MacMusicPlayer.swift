@@ -15,6 +15,11 @@ import Observation
 /// queue; near the end of the playing one the two swap roles and their volumes
 /// cross. With no crossfade asked for, the second player is never made.
 ///
+/// AirPlay binds `routePlayer` to the speaker, so the Mac's other sounds stay
+/// here and AirPlay 2 buffers ahead. A route belongs to one player, and a
+/// crossfade swaps two, so once the second player exists the button goes back to
+/// moving the Mac's whole sound output, for the rest of the session.
+///
 /// The player knows nothing of the queue. `MacMusicPlayback` loads a track,
 /// queues the next, and hears back when playback moved on, ended or failed.
 @MainActor
@@ -41,6 +46,9 @@ final class MacMusicPlayer {
     private(set) var isMuted = false
     /// Play was pressed (or a track started) and not paused since, loaded or not.
     private(set) var wantsToPlay = false
+    /// The player an AirPlay button may route on its own; nil once crossfade has
+    /// made a second player.
+    private(set) var routePlayer: AVPlayer?
 
     /// The playing track finished and the queued one took over.
     @ObservationIgnored var onAdvance: ((UUID) -> Void)?
@@ -85,6 +93,7 @@ final class MacMusicPlayer {
             },
         ]
         observe(player)
+        routePlayer = player
     }
 
     /// Events count only from the player that is in front at the time.
@@ -184,6 +193,7 @@ final class MacMusicPlayer {
         let made = AVQueuePlayer()
         observe(made)
         spare = made
+        routePlayer = nil
         return made
     }
 

@@ -1032,7 +1032,6 @@ struct MacVODPlayerView: View {
                 }
 
                 MacAirPlayButton(player: player.airPlayPlayer)
-                    .frame(width: 24, height: 24)
                     .help(player.airPlayPlayer == nil
                           ? "AirPlay: sound only at Original quality. Pick another quality to send the picture too."
                           : "AirPlay")
