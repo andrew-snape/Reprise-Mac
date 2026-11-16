@@ -215,9 +215,15 @@ private struct MacPlaybackCommands: Commands {
 
             Divider()
 
+            Button(vod.isMinimized ? "Expand Player" : "Minimize Player") {
+                if vod.isMinimized { vod.expand() } else { vod.minimize() }
+            }
+                .keyboardShortcut("m", modifiers: [.control, .command])
+                .disabled(vod.session == nil || vod.isPictureInPictureActive)
+
             Button("Picture in Picture") { vod.startPictureInPicture() }
                 .keyboardShortcut("p", modifiers: [.control, .command])
-                .disabled(!vod.isPictureInPicturePossible || vod.isPictureInPictureActive)
+                .disabled(!vod.isPictureInPicturePossible || vod.isPictureInPictureActive || vod.isMinimized)
 
             Button("Stop") {
                 if vod.session != nil {
@@ -309,7 +315,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate {
                       !(window.firstResponder is NSText) else { return false }
                 if let session = Self.vod?.session {
                     let player = session.player
-                    // In Picture in Picture the window is browsing: only Space is the title's.
+                    // Minimized or in Picture in Picture the window is browsing: only Space is the title's.
                     if Self.vod?.isPresented != true, keyCode != 49 { return false }
                     switch keyCode {
                     case 49: player.togglePlayPause()

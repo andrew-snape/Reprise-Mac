@@ -41,8 +41,8 @@ struct MacRootView: View {
     var body: some View {
         ZStack {
             ZStack {
-                // One bar along the bottom: the station while one is loaded (music
-                // stays paused under it), else music. Below the split view, not a safe
+                // One bar along the bottom: a minimized Plex title, else the station while
+                // one is loaded (music stays paused under either), else music. Below the split view, not a safe
                 // area inset on it: the inset never reached the detail column's scroll
                 // views, so the last row sat under the bar.
                 VStack(spacing: 0) {
@@ -54,7 +54,13 @@ struct MacRootView: View {
                     // On the split view, so the field sits in the window toolbar for every page,
                     // not only inside the detail column's stack.
                     .searchable(text: $searchQuery, placement: .toolbar, prompt: searchPrompt)
-                    if radio.station != nil { MacRadioBar() } else { MacMusicBar() }
+                    if playback.isMinimized, let session = playback.session {
+                        MacVideoBar(session: session, player: session.player)
+                    } else if radio.station != nil {
+                        MacRadioBar()
+                    } else {
+                        MacMusicBar()
+                    }
                 }
                 if music.isNowPlayingShown {
                     MacMusicNowPlayingView()
@@ -67,7 +73,8 @@ struct MacRootView: View {
             .animation(.easeInOut(duration: 0.25), value: music.isNowPlayingShown)
             if let session = playback.session {
                 // Kept in the window while the picture is in Picture in Picture, so the
-                // engine's surface stays alive; it is only out of sight and out of reach.
+                // engine's surface stays alive, and while minimized (the bar then holds the
+                // surface); it is only out of sight and out of reach.
                 MacVODPlayerView(session: session, player: session.player, close: { playback.close() })
                     .opacity(playback.isPresented ? 1 : 0)
                     .allowsHitTesting(playback.isPresented)

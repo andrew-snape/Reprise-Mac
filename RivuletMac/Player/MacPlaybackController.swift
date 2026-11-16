@@ -20,8 +20,10 @@ final class MacPlaybackController {
     private(set) var isPictureInPicturePossible = false
     /// The picture is in its own floating window and the main window is free to browse.
     private(set) var isPictureInPictureActive = false
-    /// A title covers the window: one is playing and is not in Picture in Picture.
-    var isPresented: Bool { session != nil && !isPictureInPictureActive }
+    /// The title plays on in the bottom bar, its picture there, while the window browses.
+    private(set) var isMinimized = false
+    /// A title covers the window: one is playing, not minimized and not in Picture in Picture.
+    var isPresented: Bool { session != nil && !isPictureInPictureActive && !isMinimized }
 
     /// Needed to build sessions; the root view sets it.
     @ObservationIgnored weak var plex: MacPlexSession?
@@ -95,6 +97,40 @@ final class MacPlaybackController {
         Task { await newSession.begin() }
     }
 
+    // MARK: - Minimize
+
+    /// Shrinks the title into the bottom bar and gives the window back to browsing.
+    func minimize() {
+        guard let session, isPresented else { return }
+        if let window = MacAppDelegate.mainWindow, window.styleMask.contains(.fullScreen) {
+            window.toggleFullScreen(nil)
+        }
+        session.pane = nil
+        setAlwaysOnTop(false)
+        // The browsing layout takes the window back, at its own sizes.
+        MacAppDelegate.mainWindow?.contentResizeIncrements = NSSize(width: 1, height: 1)
+        isMinimized = true
+    }
+
+    /// Brings a minimized title back over the window.
+    func expand() {
+        guard session != nil, isMinimized else { return }
+        isMinimized = false
+        MacAppDelegate.showMainWindow()
+        refitWindow()
+    }
+
+    /// The window takes the picture's shape again, as it leaves browsing.
+    private func refitWindow() {
+        guard let session else { return }
+        let size = session.player.videoSize
+        if size.width > 0, size.height > 0 {
+            MacAppDelegate.mainWindow?.fit(toVideo: size)
+        } else {
+            MacAppDelegate.mainWindow?.contentAspectRatio = NSSize(width: 16, height: 9)
+        }
+    }
+
     // MARK: - Picture in Picture
 
     /// Moves the picture into the system's floating window and frees the main window.
@@ -136,6 +172,8 @@ final class MacPlaybackController {
         setAlwaysOnTop(false)
         // The browsing layout takes the window back, at its own sizes.
         MacAppDelegate.mainWindow?.contentResizeIncrements = NSSize(width: 1, height: 1)
+        // The floating window holds the picture now; restoring returns to the full player.
+        isMinimized = false
         isPictureInPictureActive = true
     }
 
@@ -153,12 +191,7 @@ final class MacPlaybackController {
             return
         }
         MacAppDelegate.showMainWindow()
-        let size = session.player.videoSize
-        if size.width > 0, size.height > 0 {
-            fitWindow(toVideo: size)
-        } else {
-            MacAppDelegate.mainWindow?.contentAspectRatio = NSSize(width: 16, height: 9)
-        }
+        refitWindow()
     }
 
     private func endPictureInPicture() {
@@ -175,6 +208,8 @@ final class MacPlaybackController {
     }
 
     private func fitWindow(toVideo size: CGSize) {
+        // Browsing (minimized or in Picture in Picture) keeps its own window shape.
+        guard isPresented else { return }
         MacAppDelegate.mainWindow?.fit(toVideo: size)
     }
 
@@ -191,6 +226,7 @@ final class MacPlaybackController {
         isMuted = session.player.isMuted
         let reported = session.end()
         endPictureInPicture()
+        isMinimized = false
         session.player.stop()
         stateObservation?.cancel()
         stateObservation = nil
@@ -774,7 +810,8 @@ struct MacVODPlayerView: View {
             GeometryReader { proxy in
                 ZStack {
                     Color.black
-                    player.surface
+                    // Minimized, the bottom bar shows the picture: the surface lives in one place only.
+                    if !controller.isMinimized { player.surface }
                     MacCaptionOverlay(player: player, container: proxy.size)
                         .allowsHitTesting(false)
                     // Clicks on the picture, under the controls: double for full screen, single for play/pause.
@@ -893,6 +930,15 @@ struct MacVODPlayerView: View {
             }
             .shadow(color: .black.opacity(0.6), radius: 4)
             Spacer()
+            Button(action: controller.minimize) {
+                Image(systemName: "chevron.down")
+                    .font(.title3.weight(.semibold))
+                    .frame(width: 36, height: 36)
+                    .background(.regularMaterial, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Minimize Player")
+            .help("Minimize Player (⌃⌘M)")
         }
         .padding(20)
         .foregroundStyle(.white)

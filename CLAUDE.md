@@ -71,6 +71,7 @@ RivuletMac/
 └── Player/             # AetherPlayer (the only file naming engine types),
                         #   MacPlexPlayback (Plex reporting, markers, Up Next, quality),
                         #   MacPlayerPanes (Info, Chapters, Details, the Up Next card),
+                        #   MacVideoBar (a minimized title in the bottom bar),
                         #   MacPlaybackController + MacVODPlayerView, MacLivePlayback,
                         #   MacPlayerView (live chrome), MacCaptionOverlay
 ```
@@ -113,6 +114,11 @@ from the app, the app injects it at launch, before touching the stores:
   mounted at zero opacity so the engine's surface lives; test `isPresented`, not
   `session != nil`, for anything about the window. The floating window's close button
   ends the title; starting music, a channel or a station does too.
+- **Minimized player (Plex titles)**: `MacPlaybackController.minimize()` / `expand()` (top bar
+  chevron, ⌃⌘M) moves the title into `MacVideoBar`, which takes the bottom bar's place and
+  holds the engine's surface while `MacVODPlayerView` stays mounted without it. Like Picture in
+  Picture, `isPresented` is false meanwhile, so the window browses and only Space is the title's.
+  Starting music, a channel or a station ends the title, as ever.
 - **Local connections prefer TLS**: `PlexAuthManager.prefersSecureLocalConnections` is set
   at launch, ranking a local plex.direct address above plain HTTP and moving a saved
   `http://` address onto one. A server with no working TLS address still uses HTTP.
