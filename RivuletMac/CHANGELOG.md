@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.72
+
 - Rivulet is now Reprise, with a new icon. Your settings, sign-ins and updates carry over. After updating, the app file may still be called Rivulet.app; quit it and rename it in Finder if you like.
 
 ## 0.69
