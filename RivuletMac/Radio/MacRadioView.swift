@@ -444,8 +444,7 @@ struct MacRadioBar: View {
                             .lineLimit(1)
                             .help(quality.sampleRateText.map { summary + " · " + $0 } ?? summary)
                     }
-                    MacAirPlayButton(tint: .secondaryLabelColor)
-                        .frame(width: 22, height: 22)
+                    MacAirPlayButton(tint: .secondaryLabelColor, size: 22)
                         .help("AirPlay")
                     Button { radio.stop() } label: {
                         Image(systemName: "stop.fill")

@@ -348,6 +348,10 @@ stream straight from its server (a Plex transcode, a native HLS channel): the
 engine puts its local relay on the LAN for a receiver on iOS only, so on the
 Mac a direct-play file or an engine-demuxed channel would hand an Apple TV a
 127.0.0.1 address. With no player the button picks the Mac's sound output.
+Music hands it `MacMusicPlayer.routePlayer` (AirPlay 2 buffering, other sounds
+stay on the Mac), nil once crossfade has made a second player, since a route
+belongs to one player; radio passes none. The button shows only while
+`AVRouteDetector` finds more than one output (`MacAirPlayRoutes`).
 
 ## Plex Metadata Hierarchy
 
