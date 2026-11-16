@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.74
+
+- Movies and TV: minimize the player into the bar at the bottom of the window and keep browsing while it plays. Click the picture to bring it back.
+
 ## 0.73
 
 - No changes to the app; the project page now has screenshots.
