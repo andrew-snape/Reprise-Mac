@@ -56,6 +56,8 @@ final class MacRadioPlayback {
     private var trackQuality: RadioQuality?
 
     @ObservationIgnored private let player = AVPlayer()
+    /// The player the AirPlay button binds to when AirPlay goes from the player (`MacAirPlayRoute`).
+    var airPlayPlayer: AVPlayer { player }
 
     @ObservationIgnored private var statusTask: Task<Void, Never>?
     @ObservationIgnored private var itemTask: Task<Void, Never>?

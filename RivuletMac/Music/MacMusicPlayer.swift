@@ -57,6 +57,9 @@ final class MacMusicPlayer {
 
     /// The player that is audible, or the one fading in.
     @ObservationIgnored private var player = AVQueuePlayer()
+    /// The player the AirPlay button binds to when AirPlay goes from the player
+    /// (`MacAirPlayRoute`). Crossfade swaps players, so it is off meanwhile.
+    var airPlayPlayer: AVPlayer { player }
     @ObservationIgnored private var loaded: [ObjectIdentifier: Loaded] = [:]
     @ObservationIgnored private var currentItem: ObjectIdentifier?
     @ObservationIgnored private var playerObservations: [AnyCancellable] = []

@@ -393,10 +393,12 @@ final class MacMusicPlayback {
     /// An album's own run of tracks stays gapless, as it was mastered. Songs
     /// too short to carry a fade are cut as before, and so is everything while
     /// the output's sample rate follows the music: retuning the device mid-fade clicks.
+    /// None while AirPlay goes from the player: the incoming player is not the one routed.
     private func crossfade(into next: MacMusicSource) -> TimeInterval {
         let seconds = TimeInterval(UserDefaults.standard.integer(forKey: Self.crossfadeKey))
         guard seconds > 0, let current, next.entryID != current.entryID,
-              MusicOutputRate.setting == MusicOutputRate.dontChange else { return 0 }
+              MusicOutputRate.setting == MusicOutputRate.dontChange,
+              !MacAirPlayRoute.fromPlayer else { return 0 }
         let (playing, coming) = (current.track, next.track)
         if let album = playing.parentRatingKey, album == coming.parentRatingKey,
            (playing.parentIndex ?? 1) == (coming.parentIndex ?? 1),

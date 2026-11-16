@@ -337,9 +337,9 @@ grep its key: a single hit means it is dead. Keys read today:
 `skipForwardSeconds`, `radioLayout`, `radioSort`, `musicOnlineInfo`, `sidebarOrder`,
 `sidebarHidden`, `settingsPane` (the selected Settings pane), `macChannelSort`,
 `macLiveTVLayout`, `macLiveTVShowsList`, `musicOutputSampleRate`, `musicCacheLimitMB`,
-`musicPrecacheCount`, `musicCrossfadeSeconds`, `musicQueuePosition` (not a control: where the
+`musicPrecacheCount`, `musicCrossfadeSeconds`, `musicAirPlayFromPlayer`, `musicQueuePosition` (not a control: where the
 saved queue resumes). Some are reached through a constant
-(`MusicInfoStore.enabledKey`, `MacSettingsPane.storageKey`, `MacMusicCache.limitKey`, `MacMusicPlayback.crossfadeKey`, `MacMusicQueueStore.positionKey`), so grep both. Sparkle keeps
+(`MusicInfoStore.enabledKey`, `MacSettingsPane.storageKey`, `MacMusicCache.limitKey`, `MacMusicPlayback.crossfadeKey`, `MacAirPlayRoute.fromPlayerKey`, `MacMusicQueueStore.positionKey`), so grep both. Sparkle keeps
 its own (Settings > General).
 
 Settings is a sidebar of panes (`MacSettingsPane`, iPad-style icon tiles in system
@@ -354,6 +354,15 @@ stream straight from its server (a Plex transcode, a native HLS channel): the
 engine puts its local relay on the LAN for a receiver on iOS only, so on the
 Mac a direct-play file or an engine-demuxed channel would hand an Apple TV a
 127.0.0.1 address. With no player the button picks the Mac's sound output.
+
+Music and radio pass no player by default (bound to an audio player, the system button
+never stops pulsing). The system button then pulses anyway while the output is AirPlay, so
+it is drawn clear, still taking the clicks, under Apple's `airplay.audio` symbol: accent
+while the default output's transport is AirPlay, dimmed while `AVRouteDetector` sees no
+other route (detection runs only while a button shows). `musicAirPlayFromPlayer` (Settings >
+Music, on trial) binds the button to the music or radio player instead: only Reprise goes to
+the speaker, with AirPlay 2's enhanced buffering (Apple's "Supporting AirPlay in your app"),
+the system button shows as is, and crossfade is off, since it swaps players.
 
 ## Plex Metadata Hierarchy
 

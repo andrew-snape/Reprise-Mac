@@ -401,6 +401,7 @@ private enum MacRadioAddKind: Hashable, Identifiable {
 struct MacRadioBar: View {
     @Environment(MacRadioPlayback.self) private var radio
     @State private var showsDetails = false
+    @AppStorage(MacAirPlayRoute.fromPlayerKey) private var airPlayFromPlayer = false
 
     var body: some View {
         if let station = radio.station {
@@ -444,7 +445,8 @@ struct MacRadioBar: View {
                             .lineLimit(1)
                             .help(quality.sampleRateText.map { summary + " · " + $0 } ?? summary)
                     }
-                    MacAirPlayButton(tint: .secondaryLabelColor)
+                    MacAirPlayButton(player: airPlayFromPlayer ? radio.airPlayPlayer : nil,
+                                     tint: .secondaryLabelColor)
                         .frame(width: 22, height: 22)
                         .help("AirPlay")
                     Button { radio.stop() } label: {

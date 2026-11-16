@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.75
+
+- Music and radio: the AirPlay button no longer pulses while you're playing to a speaker; it turns blue, and dims when there's nothing to AirPlay to.
+- Music: a new trial setting, AirPlay From Reprise Only (Settings > Music), sends just Reprise to the speaker instead of all your Mac's sound.
+
 ## 0.74
 
 - Movies and TV: minimize the player into the bar at the bottom of the window and keep browsing while it plays. Click the picture to bring it back.

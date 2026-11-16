@@ -149,7 +149,7 @@ final class MacAudioOutput {
     }
 }
 
-private nonisolated enum CoreAudioDevice {
+nonisolated enum CoreAudioDevice {
     static func address(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
         AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal,
                                    mElement: kAudioObjectPropertyElementMain)

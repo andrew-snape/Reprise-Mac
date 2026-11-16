@@ -10,6 +10,7 @@ struct MacMusicSettings: View {
     @AppStorage(MacMusicCache.limitKey) private var cacheLimit = MacMusicCache.limitDefault
     @AppStorage(MacMusicPrecache.countKey) private var precacheCount = MacMusicPrecache.countDefault
     @AppStorage(MusicOutputRate.key) private var outputRate = MusicOutputRate.dontChange
+    @AppStorage(MacAirPlayRoute.fromPlayerKey) private var airPlayFromPlayer = false
     @State private var cacheSize: Int64 = 0
     @State private var deviceRates: [Int] = []
 
@@ -24,11 +25,11 @@ struct MacMusicSettings: View {
                     Text("6 Seconds").tag(6)
                     Text("8 Seconds").tag(8)
                 }
-                .disabled(outputRate != MusicOutputRate.dontChange)
+                .disabled(outputRate != MusicOutputRate.dontChange || airPlayFromPlayer)
             } header: {
                 Text("Playback")
             } footer: {
-                Text("Loudness Levelling evens out volume between tracks using your Plex server's analysis; an album played in order keeps its own quiet and loud songs. Crossfade blends each song into the next, except songs that run together on an album. Both apply from the next track. Crossfade needs Sample Rate set to Don't Change.")
+                Text("Loudness Levelling evens out volume between tracks using your Plex server's analysis; an album played in order keeps its own quiet and loud songs. Crossfade blends each song into the next, except songs that run together on an album. Both apply from the next track. Crossfade needs Sample Rate set to Don't Change and AirPlay From Reprise Only off.")
                     .foregroundStyle(.secondary)
             }
 
@@ -39,10 +40,11 @@ struct MacMusicSettings: View {
                     Divider()
                     ForEach(rateChoices, id: \.self) { Text(MusicOutputRate.label($0)).tag($0) }
                 }
+                Toggle("AirPlay From Reprise Only (Trial)", isOn: $airPlayFromPlayer)
             } header: {
                 Text("Output")
             } footer: {
-                Text("Match Each Track sets your Mac's sound output to each song's sample rate, so it plays without conversion. This affects every app until music stops. Bluetooth and AirPlay keep their own rate, and a change of rate leaves a short gap.")
+                Text("Match Each Track sets your Mac's sound output to each song's sample rate, so it plays without conversion. This affects every app until music stops. Bluetooth and AirPlay keep their own rate, and a change of rate leaves a short gap.\n\nAirPlay From Reprise Only sends just Reprise's music and radio to an AirPlay speaker, with AirPlay 2's steadier buffering and multi-room, instead of switching your Mac's whole sound output. While on trial the AirPlay button may keep pulsing as it plays, and Crossfade is off.")
                     .foregroundStyle(.secondary)
             }
 
