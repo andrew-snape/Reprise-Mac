@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.76
+
+- Music: Crossfade now listens to the songs it has downloaded, fading on a bar line, skipping silence at the end of one song and the start of the next.
+- Now Playing, the media keys and headphone buttons use macOS's new Now Playing system, with proper details for episodes, movies, songs and radio stations.
+
 ## 0.75
 
 - Music and radio: the AirPlay button no longer pulses while you're playing to a speaker; it turns blue, and dims when there's nothing to AirPlay to.
