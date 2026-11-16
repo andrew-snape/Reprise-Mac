@@ -311,7 +311,14 @@ from the app, the app injects it at launch, before touching the stores:
   server has analysed the library, else random tracks from it.
 - Now Playing and the media keys: Plex title first, then music when it is
   playing or no channel is on (`MacAppDelegate.musicInFront`), then Live TV.
-  `MacPlaybackController` owns all of it.
+  `MacPlaybackController` owns all of it, through the Now Playing framework (macOS 27), not
+  `MPNowPlayingInfoCenter` / `MPRemoteCommandCenter`: one `MacNowPlayingModel`
+  (`content`, `playbackSnapshot`, `commands`, all stored and set from the controller's
+  observations, never a getter reading the clock) and a `MediaSession` that exists only while
+  something is loaded, made the app's primary on each new item and on activation
+  (`requestToBecomeSystemPrimary` is unavailable on macOS). Radio with a song is
+  `MusicContent` with `.live` duration (`RadioContent` has no song fields). Artwork ids never
+  hold a URL. Command closures are explicitly `@MainActor`.
 
 ### Rows
 

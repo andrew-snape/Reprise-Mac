@@ -3,7 +3,6 @@
 
 import AppIntents
 import AppKit
-import MediaPlayer
 
 // Siri, Spotlight and Shortcuts actions. Each one starts playback the way the
 // app's own buttons do (`IntentActions`), so the one-stream rule holds: video
@@ -208,8 +207,8 @@ enum IntentActions {
         music.perform(action, on: item)
     }
 
-    static func transport(_ command: @MainActor (MacPlaybackController) -> MPRemoteCommandHandlerStatus) throws {
-        guard let vod = MacAppDelegate.vod, command(vod) == .success else { throw IntentFailure.nothingPlaying }
+    static func transport(_ command: @MainActor (MacPlaybackController) -> Bool) throws {
+        guard let vod = MacAppDelegate.vod, command(vod) else { throw IntentFailure.nothingPlaying }
     }
 
     /// Brings the main window forward, reopening it if it was closed, and waits

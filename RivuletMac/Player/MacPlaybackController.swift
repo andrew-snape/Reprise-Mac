@@ -3,7 +3,8 @@
 
 import AppKit
 import AVKit
-@preconcurrency import MediaPlayer
+import CryptoKit
+import NowPlaying
 import Observation
 import SwiftUI
 
@@ -32,12 +33,13 @@ final class MacPlaybackController {
     @ObservationIgnored private var stateObservation: Task<Void, Never>?
     @ObservationIgnored private var nowPlayingObservations: [Task<Void, Never>] = []
     @ObservationIgnored private let sleepGuard = MacSleepGuard()
-    @ObservationIgnored private var nowPlayingArtwork: MPMediaItemArtwork?
     @ObservationIgnored private var liveObservation: Task<Void, Never>?
     @ObservationIgnored private var musicObservations: [Task<Void, Never>] = []
-    @ObservationIgnored private var musicArtwork: (key: String, artwork: MPMediaItemArtwork)?
-    /// The logo of the station or channel in front, on a square, for Now Playing.
-    @ObservationIgnored private var logoArtwork: (url: URL, artwork: MPMediaItemArtwork)?
+    /// What the system's Now Playing shows, and the session publishing it while anything is loaded.
+    @ObservationIgnored private let nowPlaying = MacNowPlayingModel()
+    @ObservationIgnored private var nowPlayingSession: MediaSession<MacNowPlayingModel>?
+    @ObservationIgnored private var publishedID: String?
+    @ObservationIgnored private var activationObserver: NSObjectProtocol?
     @ObservationIgnored private var videoShapeObservation: Task<Void, Never>?
     @ObservationIgnored private var hasConfiguredRemoteCommands = false
     @ObservationIgnored private var pip: AVPictureInPictureController?
@@ -231,13 +233,9 @@ final class MacPlaybackController {
         stateObservation?.cancel()
         stateObservation = nil
         cancelNowPlayingObservations()
-        let nowPlaying = MPNowPlayingInfoCenter.default()
-        nowPlaying.nowPlayingInfo = nil
-        nowPlaying.playbackState = .stopped
         setAlwaysOnTop(false)
         lockAspectRatio(false)
         sleepGuard.setAwake(false)
-        nowPlayingArtwork = nil
         self.session = nil
         updateRemoteCommandAvailability(for: nil)
         // Music or a channel left underneath takes Now Playing back.
@@ -272,73 +270,24 @@ final class MacPlaybackController {
         isAlwaysOnTop ? .floating : .normal
     }
 
+    /// Starts publishing to the system's Now Playing (the widget, the media keys,
+    /// headphone buttons) through the Now Playing framework: one session for the
+    /// app's lifetime, whose model this controller fills from whatever is in front.
     func configureRemoteCommands() {
         guard !hasConfiguredRemoteCommands else { return }
         hasConfiguredRemoteCommands = true
-        // This controller is an app-lifetime State, so the shared command
-        // center receives one set of handlers for the lifetime of the app.
-        let commands = MPRemoteCommandCenter.shared()
-        commands.playCommand.addTarget { [weak self] _ in
-            Self.dispatchRemoteCommand { self?.remotePlay() ?? .commandFailed }
-        }
-        commands.pauseCommand.addTarget { [weak self] _ in
-            Self.dispatchRemoteCommand { self?.remotePause() ?? .commandFailed }
-        }
-        commands.togglePlayPauseCommand.addTarget { [weak self] _ in
-            Self.dispatchRemoteCommand { self?.remoteToggle() ?? .commandFailed }
-        }
-        commands.stopCommand.addTarget { [weak self] _ in
-            Self.dispatchRemoteCommand { self?.remoteStop() ?? .commandFailed }
-        }
-
-        commands.skipBackwardCommand.addTarget { [weak self] event in
-            guard let event = event as? MPSkipIntervalCommandEvent, event.interval.isFinite else {
-                return .commandFailed
-            }
-            let interval = abs(event.interval)
-            return Self.dispatchRemoteCommand {
-                self?.remoteSkip(by: -interval) ?? .commandFailed
-            }
-        }
-        commands.skipForwardCommand.addTarget { [weak self] event in
-            guard let event = event as? MPSkipIntervalCommandEvent, event.interval.isFinite else {
-                return .commandFailed
-            }
-            let interval = abs(event.interval)
-            return Self.dispatchRemoteCommand {
-                self?.remoteSkip(by: interval) ?? .commandFailed
-            }
-        }
-
-        commands.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let position = event as? MPChangePlaybackPositionCommandEvent,
-                  position.positionTime.isFinite else { return .commandFailed }
-            let positionTime = position.positionTime
-            return Self.dispatchRemoteCommand {
-                guard let self else { return .commandFailed }
-                if self.session == nil, let music = self.music {
-                    music.seek(to: max(positionTime, 0))
-                    return .success
-                }
-                guard let player = self.session?.player else { return .commandFailed }
-                let target = player.duration > 0
-                    ? min(max(positionTime, 0), player.duration)
-                    : max(positionTime, 0)
-                Task { await player.seek(to: target) }
-                return .success
-            }
-        }
-        commands.nextTrackCommand.addTarget { [weak self] _ in
-            Self.dispatchRemoteCommand { self?.remoteNext() ?? .commandFailed }
-        }
-        commands.previousTrackCommand.addTarget { [weak self] _ in
-            Self.dispatchRemoteCommand { self?.remotePrevious() ?? .commandFailed }
+        // Playback Siri started in the background claims the system once the app is in front.
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.claimNowPlaying() }
         }
         updateRemoteCommandAvailability(for: nil)
         observeLive()
         observeMusic()
         observeRadio()
         observeLogo()
+        updateBackgroundNowPlaying()
     }
 
     /// Music, when it is in front of any channel and no Plex title is up.
@@ -390,16 +339,6 @@ final class MacPlaybackController {
                 self.updateRemoteCommandAvailability(for: nil)
             }
         })
-        musicObservations.append(Task { [weak self] in
-            for await track in Observations({ music.track }) {
-                guard let self, let track, let key = track.ratingKey, self.musicArtwork?.key != key,
-                      let url = self.plex?.imageURL(path: track.squareArtPath, width: 600, height: 600),
-                      let image = await MacArtworkCache.shared.image(for: url),
-                      music.track?.ratingKey == key else { continue }
-                self.musicArtwork = (key, Self.artwork(from: image))
-                if self.session == nil { self.updateBackgroundNowPlaying() }
-            }
-        })
     }
 
     private func observeRadio() {
@@ -418,28 +357,85 @@ final class MacPlaybackController {
         guard let radio = MacAppDelegate.radio, let live = MacAppDelegate.playback else { return }
         musicObservations.append(Task { [weak self] in
             for await _ in Observations({ _ = (radio.station?.tvgLogo, live.channel?.id) }) {
-                await self?.loadLogo()
+                guard let self, self.session == nil else { continue }
+                self.updateBackgroundNowPlaying()
             }
         })
     }
 
-    private func loadLogo() async {
+    // MARK: - Now Playing
+
+    /// Publishes `content` and `snapshot`, or withdraws the session when nothing is
+    /// loaded. A new item claims the system, as a press of Play does.
+    private func publish(_ content: (any MediaContentRepresentable)?, _ snapshot: MediaPlaybackSnapshot?) {
+        guard let content else {
+            nowPlayingSession = nil
+            nowPlaying.content = nil
+            nowPlaying.playbackSnapshot = nil
+            publishedID = nil
+            return
+        }
+        nowPlaying.content = content
+        nowPlaying.playbackSnapshot = snapshot
+        if nowPlayingSession == nil { nowPlayingSession = MediaSession(nowPlaying) }
+        if publishedID != content.id {
+            publishedID = content.id
+            claimNowPlaying()
+        }
+    }
+
+    /// Makes this the app's session, so the system's Now Playing and the media keys
+    /// follow it. (Asking to be the system's primary session is not offered on macOS.)
+    private func claimNowPlaying() {
+        guard let session = nowPlayingSession else { return }
+        Task { try? await session.requestToBecomeApplicationPrimary() }
+    }
+
+    private static func snapshot(playing: Bool, stopped: Bool, rate: Float = 1,
+                                 elapsed: TimeInterval? = nil) -> MediaPlaybackSnapshot {
+        let state: MediaPlaybackSnapshot.PlaybackState = stopped ? .stopped : (playing ? .playing(rate: rate) : .paused)
+        let time = elapsed.flatMap { $0.isFinite ? max(0, $0) : nil }
+        return MediaPlaybackSnapshot(state: state, defaultPlaybackRate: 1, elapsedTime: time,
+                                     timestamp: time == nil ? nil : .now)
+    }
+
+    private static func isStopped(_ state: AetherPlayer.State) -> Bool {
+        switch state {
+        case .ended, .failed, .idle: true
+        default: false
+        }
+    }
+
+    private static func length(_ seconds: TimeInterval) -> MediaDuration? {
+        seconds.isFinite && seconds > 0 ? .finite(seconds) : nil
+    }
+
+    /// Artwork the framework fetches when it wants it. The id never holds a URL
+    /// (Plex URLs carry the token); the loader keeps it to itself.
+    private static func artwork(id: String, url: URL?, square: Bool = false) -> Artwork? {
+        guard let url else { return nil }
+        return Artwork(id: id) { _ in
+            guard let image = await MacNowPlayingArt.image(for: url, square: square) else {
+                throw ArtworkRepresentation.ArtworkRepresentationError.noRepresentationAvailable
+            }
+            return try ArtworkRepresentation(cgImage: image)
+        }
+    }
+
+    private static func artwork(id: String, image: NSImage) -> Artwork? {
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        return Artwork(id: id) { _ in try ArtworkRepresentation(cgImage: cgImage) }
+    }
+
+    /// The station's or channel's logo, centred on a square: Now Playing crops a wide one.
+    private var logoArtwork: Artwork? {
         let url: URL?
         if let station = MacAppDelegate.radio?.station {
             url = station.tvgLogo.flatMap(URL.init(string:))
         } else {
             url = MacAppDelegate.playback?.channel?.logoURL
         }
-        guard let url else {
-            logoArtwork = nil
-            return
-        }
-        guard logoArtwork?.url != url else { return }
-        // The last logo is the wrong one for this station or channel.
-        logoArtwork = nil
-        guard let image = await MacArtworkCache.shared.image(for: url) else { return }
-        logoArtwork = (url, Self.artwork(from: image.centredOnSquare()))
-        if session == nil { updateBackgroundNowPlaying() }
+        return url.flatMap { Self.artwork(id: "logo-" + MacNowPlayingArt.digest($0), url: $0, square: true) }
     }
 
     /// Now Playing with no Plex title up: a station, else music in front, else the channel.
@@ -453,104 +449,57 @@ final class MacPlaybackController {
         }
     }
 
+    /// The song the station names, if it sends one, with its artist and the station
+    /// as its album; else the station alone.
     private func updateRadioNowPlaying(_ radio: MacRadioPlayback) {
-        let nowPlaying = MPNowPlayingInfoCenter.default()
         let stationName = radio.station?.name ?? ""
-        // The song the station names, if it sends one, with its artist and the
-        // station under it; else the station alone.
-        var information: [String: Any] = [
-            MPMediaItemPropertyTitle: radio.song?.title ?? stationName,
-            MPNowPlayingInfoPropertyIsLiveStream: true,
-            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
-            MPNowPlayingInfoPropertyPlaybackRate: radio.state == .playing ? 1.0 : 0.0
-        ]
+        let stationID = "station-" + MacNowPlayingArt.digest(stationName)
+        let picture = radio.cover.flatMap { Self.artwork(id: stationID + "-" + (radio.song?.text ?? ""), image: $0) }
+            ?? logoArtwork
+        let content: any MediaContentRepresentable
         if let song = radio.song {
-            information[MPMediaItemPropertyArtist] = song.artist ?? stationName
-            if song.artist != nil { information[MPMediaItemPropertyAlbumTitle] = stationName }
+            content = MusicContent(id: stationID + "-" + song.text, songTitle: song.title,
+                                   artistName: song.artist ?? stationName,
+                                   albumName: song.artist == nil ? "" : stationName,
+                                   type: .audio, duration: .live, artwork: picture)
+        } else {
+            content = RadioContent(id: stationID, stationName: stationName, artwork: picture)
         }
-        if let cover = radio.cover {
-            information[MPMediaItemPropertyArtwork] = Self.artwork(from: cover)
-        } else if let logoArtwork {
-            information[MPMediaItemPropertyArtwork] = logoArtwork.artwork
-        }
-        nowPlaying.nowPlayingInfo = information
+        let stopped: Bool
         switch radio.state {
-        case .playing: nowPlaying.playbackState = .playing
-        case .loading, .paused: nowPlaying.playbackState = .paused
-        case .idle, .failed: nowPlaying.playbackState = .stopped
+        case .idle, .failed: stopped = true
+        default: stopped = false
         }
+        publish(content, Self.snapshot(playing: radio.state == .playing, stopped: stopped))
     }
 
     private func updateMusicNowPlaying(_ music: MacMusicPlayback) {
-        let nowPlaying = MPNowPlayingInfoCenter.default()
-        guard let track = music.track else { return }
+        guard let track = music.track else { return publish(nil, nil) }
         let player = music.player
-        var information: [String: Any] = [
-            MPMediaItemPropertyTitle: track.displayTitle,
-            MPMediaItemPropertyArtist: track.trackArtist ?? "",
-            MPMediaItemPropertyAlbumTitle: track.parentTitle ?? "",
-            MPNowPlayingInfoPropertyElapsedPlaybackTime: player.currentTime.isFinite ? max(0, player.currentTime) : 0,
-            MPNowPlayingInfoPropertyPlaybackQueueCount: music.queue.entries.count,
-            MPNowPlayingInfoPropertyPlaybackRate: player.state == .playing ? 1.0 : 0.0,
-            MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
-            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue
-        ]
         let duration = player.duration > 0 ? player.duration : track.durationSeconds
-        if duration.isFinite, duration > 0 {
-            information[MPMediaItemPropertyPlaybackDuration] = duration
-        }
-        if let index = music.queue.currentIndex {
-            information[MPNowPlayingInfoPropertyPlaybackQueueIndex] = index
-        }
-        if let albumArtist = track.grandparentTitle { information[MPMediaItemPropertyAlbumArtist] = albumArtist }
-        if let number = track.index { information[MPMediaItemPropertyAlbumTrackNumber] = number }
-        if let musicArtwork, musicArtwork.key == track.ratingKey {
-            information[MPMediaItemPropertyArtwork] = musicArtwork.artwork
-        }
-        nowPlaying.nowPlayingInfo = information
+        let key = track.ratingKey ?? ""
+        let content = MusicContent(
+            id: "track-" + key, songTitle: track.displayTitle, artistName: track.trackArtist ?? "",
+            albumName: track.parentTitle ?? "", type: .audio, duration: Self.length(duration),
+            artwork: Self.artwork(id: "track-" + key,
+                                  url: plex?.imageURL(path: track.squareArtPath, width: 600, height: 600)))
+        let stopped: Bool
         switch player.state {
-        case .playing: nowPlaying.playbackState = .playing
-        case .loading, .paused: nowPlaying.playbackState = .paused
-        case .ended, .failed, .idle: nowPlaying.playbackState = .stopped
+        case .ended, .failed, .idle: stopped = true
+        default: stopped = false
         }
+        publish(content, Self.snapshot(playing: player.state == .playing, stopped: stopped,
+                                       elapsed: player.currentTime))
     }
 
     private func updateLiveNowPlaying() {
-        let nowPlaying = MPNowPlayingInfoCenter.default()
-        guard let playback = live else {
-            nowPlaying.nowPlayingInfo = nil
-            nowPlaying.playbackState = .stopped
-            return
-        }
-        let channel = playback.channel
-        var information: [String: Any] = [
-            MPMediaItemPropertyTitle: playback.programme?.displayTitle ?? channel?.name ?? "",
-            MPMediaItemPropertyArtist: channel?.numberAndName ?? "",
-            MPNowPlayingInfoPropertyIsLiveStream: true,
-            MPNowPlayingInfoPropertyPlaybackRate: playback.player.state == .playing ? 1.0 : 0.0
-        ]
-        if let logoArtwork { information[MPMediaItemPropertyArtwork] = logoArtwork.artwork }
-        nowPlaying.nowPlayingInfo = information
-        switch playback.player.state {
-        case .playing: nowPlaying.playbackState = .playing
-        case .ended, .failed, .idle: nowPlaying.playbackState = .stopped
-        case .loading, .paused: nowPlaying.playbackState = .paused
-        }
-    }
-
-    private nonisolated static func dispatchRemoteCommand(
-        _ action: @escaping @MainActor () -> MPRemoteCommandHandlerStatus
-    ) -> MPRemoteCommandHandlerStatus {
-        // Preserve the handler result on the main-thread path; queue unexpected off-main callbacks.
-        if Thread.isMainThread {
-            return MainActor.assumeIsolated(action)
-        }
-        DispatchQueue.main.async {
-            MainActor.assumeIsolated {
-                _ = action()
-            }
-        }
-        return .success
+        guard let playback = live, let channel = playback.channel else { return publish(nil, nil) }
+        let content = GenericContent(
+            id: "channel-" + MacNowPlayingArt.digest(channel.id),
+            title: playback.programme?.displayTitle ?? channel.name,
+            subtitle: channel.numberAndName, type: .video, duration: .live, artwork: logoArtwork)
+        let state = playback.player.state
+        publish(content, Self.snapshot(playing: state == .playing, stopped: Self.isStopped(state)))
     }
 
     private func cancelNowPlayingObservations() {
@@ -561,7 +510,7 @@ final class MacPlaybackController {
     private func observeNowPlaying(for session: MacPlexPlayback) {
         cancelNowPlayingObservations()
         let player = session.player
-        // Anything but the clock: transport, seek, length, speed, and the item itself.
+        // Anything but the clock: transport, seek, length, speed, and the item itself (Up Next swaps it).
         nowPlayingObservations.append(Task { [weak self] in
             for await _ in Observations({
                 _ = (player.state, player.pendingSeekTarget, player.duration, player.rate, session.request.item.ratingKey)
@@ -569,7 +518,7 @@ final class MacPlaybackController {
                 self?.updateNowPlaying()
             }
         })
-        // Now Playing interpolates elapsed time from the playback rate between updates.
+        // Now Playing runs the clock on from the rate between updates; this keeps it honest.
         nowPlayingObservations.append(Task { [weak self] in
             for await _ in Observations({ _ = player.currentTime }) {
                 self?.updateNowPlaying()
@@ -582,139 +531,116 @@ final class MacPlaybackController {
                 self.updateRemoteCommandAvailability(for: self.session)
             }
         })
-        // The poster follows the item, so Up Next swaps it too.
-        nowPlayingObservations.append(Task { [weak self] in
-            for await _ in Observations({ session.request.item.ratingKey }) {
-                guard let self else { return }
-                self.nowPlayingArtwork = nil
-                self.updateNowPlaying()
-                self.nowPlayingArtwork = await self.loadArtwork(for: session.request.item)
-                self.updateNowPlaying()
-            }
-        })
         updateNowPlaying()
-    }
-
-    private func loadArtwork(for item: PlexMetadata) async -> MPMediaItemArtwork? {
-        guard let url = plex?.artworkURL(for: item, kind: .poster, width: 600, height: 900),
-              let image = await MacArtworkCache.shared.image(for: url),
-              !Task.isCancelled else { return nil }
-        return Self.artwork(from: image)
-    }
-
-    /// Nonisolated on purpose: MediaPlayer calls the handler on its own queue, and a
-    /// closure built in a main-actor method would trap on that isolation check.
-    private nonisolated static func artwork(from image: NSImage) -> MPMediaItemArtwork {
-        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
 
     private func updateNowPlaying() {
         guard let session else { return }
         let item = session.request.item
         let player = session.player
-        let nowPlaying = MPNowPlayingInfoCenter.default()
-        let elapsed = player.pendingSeekTarget ?? player.currentTime
-        var information: [String: Any] = [
-            MPMediaItemPropertyTitle: item.displayTitle,
-            MPNowPlayingInfoPropertyElapsedPlaybackTime: elapsed.isFinite ? max(0, elapsed) : 0,
-            MPNowPlayingInfoPropertyPlaybackRate: player.state == .playing ? player.rate : 0,
-            MPNowPlayingInfoPropertyDefaultPlaybackRate: player.rate
-        ]
-        let duration = player.duration > 0 ? player.duration : item.durationSeconds
-        if duration.isFinite, duration > 0 {
-            information[MPMediaItemPropertyPlaybackDuration] = duration
-        }
-        if item.type == "episode" {
-            information[MPMediaItemPropertyAlbumTitle] = item.showTitle
-        }
-        if let nowPlayingArtwork {
-            information[MPMediaItemPropertyArtwork] = nowPlayingArtwork
-        }
-        nowPlaying.nowPlayingInfo = information
-        switch player.state {
-        case .playing:
-            nowPlaying.playbackState = .playing
-        case .ended, .failed, .idle:
-            nowPlaying.playbackState = .stopped
-        case .loading, .paused:
-            nowPlaying.playbackState = .paused
-        }
+        let duration = Self.length(player.duration > 0 ? player.duration : item.durationSeconds)
+        let key = item.ratingKey ?? ""
+        let poster = Self.artwork(id: "poster-" + key,
+                                  url: plex?.artworkURL(for: item, kind: .poster, width: 600, height: 900))
+        let content: any MediaContentRepresentable = item.type == "episode"
+            ? TVShowContent(id: "title-" + key, episodeTitle: item.displayTitle, showName: item.showTitle,
+                            duration: duration, artwork: poster)
+            : MovieContent(id: "title-" + key, title: item.displayTitle, duration: duration, artwork: poster)
+        let state = player.state
+        publish(content, Self.snapshot(playing: state == .playing,
+                                       stopped: Self.isStopped(state),
+                                       rate: player.rate,
+                                       elapsed: player.pendingSeekTarget ?? player.currentTime))
     }
 
+    /// The controls Now Playing offers for what is in front. Music skips by track
+    /// rather than by seconds; Live TV skips inside its DVR window only.
     private func updateRemoteCommandAvailability(for session: MacPlexPlayback?) {
-        let commands = MPRemoteCommandCenter.shared()
-        // Music seeks and changes track, but skips by track rather than by seconds.
-        // Live TV can skip inside its DVR window only.
         let available = session != nil
         let musicUp = session == nil ? music : nil
         let liveUp = session == nil ? live : nil
         let liveCanSkip = liveUp?.player.liveWindow.seekableRange != nil
-        let liveCanSkipForward = liveCanSkip == true && liveUp?.player.liveWindow.isAtLiveEdge == false
+        let liveCanSkipForward = liveCanSkip && liveUp?.player.liveWindow.isAtLiveEdge == false
         let playing = available || musicUp != nil || live != nil || radio != nil
-        commands.playCommand.isEnabled = playing
-        commands.pauseCommand.isEnabled = playing
-        commands.togglePlayPauseCommand.isEnabled = playing
-        commands.stopCommand.isEnabled = playing
-        commands.skipBackwardCommand.isEnabled = available || liveCanSkip
-        commands.skipForwardCommand.isEnabled = available || liveCanSkipForward
         // Read again each time, so a change in Settings reaches the next title.
-        commands.skipBackwardCommand.preferredIntervals = [NSNumber(value: MacSkipInterval.back)]
-        commands.skipForwardCommand.preferredIntervals = [NSNumber(value: MacSkipInterval.forward)]
-        commands.changePlaybackPositionCommand.isEnabled = available || musicUp != nil
-        commands.nextTrackCommand.isEnabled = session?.nextEpisode != nil || musicUp?.queue.hasNext == true
-        commands.previousTrackCommand.isEnabled = musicUp != nil
+        let back = TimeInterval(MacSkipInterval.back)
+        let forward = TimeInterval(MacSkipInterval.forward)
+        // Explicitly main-actor: the framework may call from its own queue.
+        nowPlaying.commands = [
+            .play { @MainActor [weak self] in _ = self?.remotePlay() }.enabled(playing),
+            .pause { @MainActor [weak self] in _ = self?.remotePause() }.enabled(playing),
+            .togglePlayPause { @MainActor [weak self] in _ = self?.remoteToggle() }.enabled(playing),
+            .stop { @MainActor [weak self] in _ = self?.remoteStop() }.enabled(playing),
+            .skipBackward(preferredIntervals: [back]) { @MainActor [weak self] interval in
+                _ = self?.remoteSkip(by: -abs(interval.isFinite ? interval : back))
+            }.enabled(available || liveCanSkip),
+            .skipForward(preferredIntervals: [forward]) { @MainActor [weak self] interval in
+                _ = self?.remoteSkip(by: abs(interval.isFinite ? interval : forward))
+            }.enabled(available || liveCanSkipForward),
+            .seekToPosition { @MainActor [weak self] position in
+                self?.remoteSeek(to: position)
+            }.enabled(available || musicUp != nil),
+            .next { @MainActor [weak self] in _ = self?.remoteNext() }
+                .enabled(session?.nextEpisode != nil || musicUp?.queue.hasNext == true),
+            .previous { @MainActor [weak self] in _ = self?.remotePrevious() }.enabled(musicUp != nil),
+        ]
     }
 
-    func remotePlay() -> MPRemoteCommandHandlerStatus {
+    // MARK: - Transport (Now Playing, the media keys, Siri)
+
+    @discardableResult
+    func remotePlay() -> Bool {
         if let radio {
             if radio.state != .playing, radio.state != .loading { radio.togglePlayPause() }
-            return .success
+            return true
         }
         if session == nil, let music {
             music.resume()
-            return .success
+            return true
         }
-        guard let player = activePlayer else { return .commandFailed }
+        guard let player = activePlayer else { return false }
         switch player.state {
         case .playing:
-            return .success
+            return true
         case .paused:
             player.togglePlayPause()
-            return .success
+            return true
         default:
-            return .commandFailed
+            return false
         }
     }
 
-    func remotePause() -> MPRemoteCommandHandlerStatus {
+    @discardableResult
+    func remotePause() -> Bool {
         if let radio {
             if radio.state == .playing || radio.state == .loading { radio.togglePlayPause() }
-            return .success
+            return true
         }
         if session == nil, let music {
             music.pause()
-            return .success
+            return true
         }
-        guard let player = activePlayer else { return .commandFailed }
+        guard let player = activePlayer else { return false }
         if player.state == .playing { player.togglePlayPause() }
-        return .success
+        return true
     }
 
-    func remoteToggle() -> MPRemoteCommandHandlerStatus {
+    @discardableResult
+    func remoteToggle() -> Bool {
         if let radio {
             radio.togglePlayPause()
-            return .success
+            return true
         }
         if session == nil, let music {
             music.togglePlayPause()
-            return .success
+            return true
         }
-        guard let player = activePlayer else { return .commandFailed }
+        guard let player = activePlayer else { return false }
         player.togglePlayPause()
-        return .success
+        return true
     }
 
-    private func remoteStop() -> MPRemoteCommandHandlerStatus {
+    private func remoteStop() -> Bool {
         if session != nil {
             close()
         } else if let radio {
@@ -724,37 +650,76 @@ final class MacPlaybackController {
         } else if let live {
             live.stop()
         } else {
-            return .commandFailed
+            return false
         }
-        return .success
+        return true
     }
 
-    private func remoteSkip(by seconds: Double) -> MPRemoteCommandHandlerStatus {
+    private func remoteSkip(by seconds: Double) -> Bool {
         if let player = session?.player {
             Task { await player.skip(by: seconds) }
-            return .success
+            return true
         }
         guard let player = live?.player, player.liveWindow.seekableRange != nil,
-              !(seconds > 0 && player.liveWindow.isAtLiveEdge) else { return .commandFailed }
+              !(seconds > 0 && player.liveWindow.isAtLiveEdge) else { return false }
         Task { await player.skip(by: seconds) }
-        return .success
+        return true
     }
 
-    func remoteNext() -> MPRemoteCommandHandlerStatus {
+    private func remoteSeek(to position: TimeInterval) {
+        guard position.isFinite else { return }
+        if session == nil, let music {
+            music.seek(to: max(position, 0))
+            return
+        }
+        guard let player = session?.player else { return }
+        let target = player.duration > 0 ? min(max(position, 0), player.duration) : max(position, 0)
+        Task { await player.seek(to: target) }
+    }
+
+    @discardableResult
+    func remoteNext() -> Bool {
         if session == nil, let music, music.queue.hasNext {
             music.skipToNext()
-            return .success
+            return true
         }
-        guard let session, session.nextEpisode != nil else { return .commandFailed }
+        guard let session, session.nextEpisode != nil else { return false }
         session.playNext()
-        return .success
+        return true
     }
 
-    func remotePrevious() -> MPRemoteCommandHandlerStatus {
-        guard session == nil, let music else { return .commandFailed }
+    @discardableResult
+    func remotePrevious() -> Bool {
+        guard session == nil, let music else { return false }
         music.skipToPrevious()
-        return .success
+        return true
     }
+}
+
+/// The model the Now Playing framework observes: what is in front, its state and its controls.
+@MainActor
+@Observable
+final class MacNowPlayingModel: MediaSessionRepresentable {
+    nonisolated let id = "reprise"
+    var content: (any MediaContentRepresentable)?
+    var playbackSnapshot: MediaPlaybackSnapshot?
+    var commands: [MediaCommand] = []
+}
+
+/// Artwork loading for Now Playing, off the views' cache.
+enum MacNowPlayingArt {
+    static func image(for url: URL, square: Bool) async -> CGImage? {
+        guard let image = await MacArtworkCache.shared.image(for: url) else { return nil }
+        let shaped = square ? image.centredOnSquare() : image
+        return shaped.cgImage(forProposedRect: nil, context: nil, hints: nil)
+    }
+
+    /// A short stable name for an id, so no address or token ends up in one.
+    nonisolated static func digest(_ text: String) -> String {
+        SHA256.hash(data: Data(text.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
+
+    nonisolated static func digest(_ url: URL) -> String { digest(url.absoluteString) }
 }
 
 /// AVKit's delegate is an NSObject protocol; this passes its three moments on.
