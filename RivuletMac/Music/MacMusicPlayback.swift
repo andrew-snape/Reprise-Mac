@@ -385,7 +385,29 @@ final class MacMusicPlayback {
             guard let source = try? await plex.musicSource(for: wanted.id, track: wanted.track),
                   generation == self.generation, queue.entryAfterCurrent?.id == wanted.id else { return }
             next = source
-            player.setNext(source, gain: gain(for: source), crossfade: crossfade(into: source))
+            queueNext(source)
+        }
+    }
+
+    /// Queues `source` after the playing track, fading into it when Crossfade allows,
+    /// and has both songs analysed so the fade lands where their music is.
+    private func queueNext(_ source: MacMusicSource) {
+        let fade = crossfade(into: source)
+        player.setNext(source, gain: gain(for: source), crossfade: fade)
+        if fade > 0 { prepareCues(for: [current, source].compactMap { $0 }) }
+    }
+
+    /// Downloaded songs only: a transcode or a stream not yet on disk keeps the plain fade.
+    private func prepareCues(for sources: [MacMusicSource]) {
+        guard UserDefaults.standard.integer(forKey: Self.crossfadeKey) > 0 else { return }
+        for source in sources {
+            guard let key = source.cacheKey else { continue }
+            let id = source.entryID
+            Task { [weak self] in
+                guard let file = await MacMusicCache.shared.file(for: key),
+                      let cues = await MacMusicCues.shared.cues(for: key, file: file) else { return }
+                self?.player.setCues(cues, for: id)
+            }
         }
     }
 
@@ -437,6 +459,7 @@ final class MacMusicPlayback {
         if let current, current.entryID == id, !current.isCached {
             // Left alone while it plays; a later stall picks the file up.
             currentFile = (id, file)
+            if let next, player.nextID == next.entryID { prepareCues(for: [current]) }
             if player.state != .playing { playCurrentFromFile() }
             return
         }
@@ -444,7 +467,7 @@ final class MacMusicPlayback {
               player.duration - player.currentTime > 10 else { return }
         let cached = next.withURL(file)
         self.next = cached
-        player.setNext(cached, gain: gain(for: cached), crossfade: crossfade(into: cached))
+        queueNext(cached)
     }
 
     private func gain(for source: MacMusicSource) -> Float {
@@ -532,7 +555,7 @@ final class MacMusicPlayback {
                 guard let source = try? await plex.musicSource(for: wanted.id, track: wanted.track, forceTranscode: !wasCached),
                       generation == self.generation, queue.entryAfterCurrent?.id == wanted.id else { return }
                 self.next = source
-                player.setNext(source, gain: gain(for: source), crossfade: crossfade(into: source))
+                queueNext(source)
             }
         }
     }

@@ -284,7 +284,11 @@ from the app, the app injects it at launch, before touching the stores:
   on a second `AVQueuePlayer` and swaps the two near the end of the playing one. Never
   between consecutive tracks of one album, tracks shorter than three fades, or while the
   output sample rate follows the music. With it off the second player is never made and
-  the gapless path is unchanged.
+  the gapless path is unchanged. Downloaded songs are analysed by Music Understanding
+  (`MacMusicCues`, loudness and rhythm, utility priority, held for the session by file name):
+  the fade ends where the outgoing song's sound ends (trailing silence dropped), starts on
+  the nearest bar line, and the next song comes in at its first sound. Without cues
+  (a stream, a transcode, analysis not done) the fade runs on the file's length as before.
 - **Plex extras** (`PlexNetworkManager+MusicExtras`, `MacPlexSession+MusicExtras`), each held for
   the session in `MacMusicExtrasCache` by rating key, cleared on sign-out:
   - Lyrics: the lyric stream (`streamType` 4) in a track's full metadata, fetched from its `key`,

@@ -74,7 +74,7 @@ final class MacPlexSession {
         PlexAuthManager.onAuthenticated = { [weak self] in await self?.refresh() }
         PlexAuthManager.onSignedOut = { [weak self] in
             self?.clearContent()
-            Task { await MacMusicCache.shared.clear() }
+            Task { await MacMusicCache.shared.clear(); await MacMusicCues.shared.clear() }
             MacMusicRecents.shared.clear()
             MacMusicExtrasCache.shared.clear()
         }

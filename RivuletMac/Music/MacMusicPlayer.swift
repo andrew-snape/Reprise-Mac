@@ -70,8 +70,11 @@ final class MacMusicPlayer {
     @ObservationIgnored private var spare: AVQueuePlayer?
     /// The track waiting on `spare`, and how long its fade in is to be.
     @ObservationIgnored private var standby: (item: ObjectIdentifier, fade: TimeInterval)?
-    /// The track fading out on `spare`.
-    @ObservationIgnored private var outgoing: (item: ObjectIdentifier?, gain: Float, duration: TimeInterval)?
+    /// The track fading out on `spare`, and where its music ends (its length without cues).
+    @ObservationIgnored private var outgoing: (item: ObjectIdentifier?, gain: Float, end: TimeInterval)?
+    /// Each analysed entry's start, end and last bars (`MacMusicCues`). Without
+    /// them a crossfade runs on the file's own length, as it always did.
+    @ObservationIgnored private var cues: [UUID: MusicCues] = [:]
     /// A follow-on asked for while `spare` was still fading out; set once it is free.
     @ObservationIgnored private var deferredNext: (source: MacMusicSource, gain: Float, fade: TimeInterval)?
     /// 0 as a fade starts, 1 when it is over.
@@ -199,20 +202,32 @@ final class MacMusicPlayer {
 
     // MARK: - Crossfade
 
+    /// Cues for an entry, from `MacMusicCues`. Kept only for the entries in play.
+    func setCues(_ found: MusicCues, for id: UUID) {
+        let keep = Set([currentID, nextID].compactMap { $0 })
+        guard keep.contains(id) else { return }
+        cues = cues.filter { keep.contains($0.key) }
+        cues[id] = found
+    }
+
     /// Called on each clock tick: starts the fade once the playing track has no
     /// more left than the fade is long, and the waiting track can start at once.
+    /// With cues the fade ends where the music does and starts on a bar line.
     private func beginFadeIfDue() {
         guard let standby, outgoing == nil, wantsToPlay, duration > 0 else { return }
-        let remaining = duration - currentTime
-        guard remaining <= standby.fade, remaining > 0.3,
+        let marks = currentID.flatMap { cues[$0] }
+        let end = min(marks?.end ?? duration, duration)
+        let start = marks?.fadeStart(for: standby.fade) ?? end - standby.fade
+        let remaining = end - currentTime
+        guard currentTime >= start, remaining > 0.3,
               spare?.currentItem?.status == .readyToPlay else { return }
-        swapToStandby(fade: remaining)
+        swapToStandby(fade: remaining, end: end)
     }
 
     /// The waiting track takes over as the current one. With a `fade`, the track
     /// it replaces plays out underneath; with none it is cut, as when the waiting
     /// track was not ready in time.
-    private func swapToStandby(fade: TimeInterval) {
+    private func swapToStandby(fade: TimeInterval, end: TimeInterval? = nil) {
         guard let standby, let incoming = spare, let entry = loaded[standby.item] else { return }
         let previous = player
         let previousItem = currentItem
@@ -220,7 +235,7 @@ final class MacMusicPlayer {
         spare = previous
         player = incoming
         if fade > 0 {
-            outgoing = (previousItem, previousItem.flatMap { loaded[$0]?.gain } ?? 1, duration)
+            outgoing = (previousItem, previousItem.flatMap { loaded[$0]?.gain } ?? 1, end ?? duration)
             fadeProgress = 0
         } else {
             previous.pause()
@@ -231,6 +246,13 @@ final class MacMusicPlayer {
         currentID = entry.id
         duration = entry.duration
         currentTime = 0
+        // In at its first sound, past any leading silence, once it can seek.
+        if let start = cues[entry.id]?.start, start > 0,
+           incoming.currentItem?.status == .readyToPlay {
+            incoming.seek(to: CMTime(seconds: start, preferredTimescale: 600),
+                          toleranceBefore: .zero, toleranceAfter: .zero)
+            currentTime = start
+        }
         applyVolume()
         if wantsToPlay { startPlaying() }
         updateState()
@@ -253,7 +275,7 @@ final class MacMusicPlayer {
                 if fading.currentItem == nil || playedFor > length + 2 {
                     self.fadeProgress = 1
                 } else if time.isFinite {
-                    self.fadeProgress = max(self.fadeProgress, min(1 - (outgoing.duration - time) / length, 1))
+                    self.fadeProgress = max(self.fadeProgress, min(1 - (outgoing.end - time) / length, 1))
                 }
                 self.applyVolume()
                 if self.fadeProgress >= 1 {
@@ -297,6 +319,7 @@ final class MacMusicPlayer {
         outgoing = nil
         standby = nil
         deferredNext = nil
+        cues = [:]
         fadeProgress = 1
         spare?.pause()
         spare?.removeAllItems()
