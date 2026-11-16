@@ -5,6 +5,14 @@ Macs (arm64 only, macOS 27+). It is a port of Rivulet, a tvOS app; the tvOS and
 iOS apps were removed from this repo, and their shared Plex and Live TV code
 lives on in `RivuletCore/`. Views are SwiftUI with small AppKit bridges.
 
+**Renamed from Rivulet in 0.72.** Only the user-facing name changed (display name,
+`PRODUCT_NAME`, UI text, repo `andrew-snape/Reprise-Mac`). The bundle ID
+`com.gstudios.rivulet.mac`, the Keychain service `com.rivulet.plex`, the Xcode project,
+the `Rivulet Mac` scheme and the `RivuletCore` / `RivuletMac` folders keep the old name
+on purpose: changing them would lose saved secrets and settings and break updates.
+Never create a repo named `Rivulet-Mac` again: GitHub's redirect from it is what
+older installs' update feed uses.
+
 The video player is **AetherPlayer**, an adapter around AetherEngine (FFmpeg
 demux + HLS-fMP4 remux + AVPlayer, with HDR10+ / HLG / EAC3+JOC Atmos, plus a
 software backend for AV1 / VP9 / MPEG-2 / VC-1 / MPEG-4p2). It plays Plex video
