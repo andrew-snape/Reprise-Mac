@@ -12,6 +12,10 @@
 
 </div>
 
+<p align="center">
+  <img src="Branding/Screenshots/home.png" alt="Reprise for Mac, Home" width="900">
+</p>
+
 ## About
 
 Reprise for Mac is a native media client for Plex and Live TV, built for Apple
@@ -51,6 +55,23 @@ server; IPTV sources can be configured separately.
 - **Menu bar player** (optional): a mini player in the menu bar that keeps music
   and radio playing with the window closed.
 - **Updates**: the app updates itself from GitHub releases.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="Branding/Screenshots/movies.png" alt="Movies library"><br><sub>Movies</sub></td>
+    <td width="50%"><img src="Branding/Screenshots/tv-shows.png" alt="TV Shows library"><br><sub>TV Shows</sub></td>
+  </tr>
+  <tr>
+    <td><img src="Branding/Screenshots/music.png" alt="Music library"><br><sub>Music</sub></td>
+    <td><img src="Branding/Screenshots/now-playing.png" alt="Now Playing with Up Next"><br><sub>Now Playing</sub></td>
+  </tr>
+  <tr>
+    <td><img src="Branding/Screenshots/live-tv.png" alt="Live TV channel list"><br><sub>Live TV</sub></td>
+    <td><img src="Branding/Screenshots/radio.png" alt="Internet radio stations"><br><sub>Radio</sub></td>
+  </tr>
+</table>
 
 ## Keyboard
 
