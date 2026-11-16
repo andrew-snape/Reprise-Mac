@@ -9,9 +9,9 @@ set -euo pipefail
 
 version=${1:?usage: scripts/release.sh <version>}
 tag="v$version"
-repo=andrew-snape/Rivulet-Mac
+repo=andrew-snape/Reprise-Mac
 root=${0:A:h:h}
-build=/tmp/rivulet-release
+build=/tmp/reprise-release
 stage=$build/stage
 
 cd "$root"
@@ -24,7 +24,7 @@ xcodebuild -scheme "Rivulet Mac" -configuration Release \
   -destination 'platform=macOS,arch=arm64' -derivedDataPath "$build" build >"$build.log" 2>&1 \
   || { tail -40 "$build.log" >&2; echo "Build failed, see $build.log" >&2; exit 1; }
 
-app=$build/Build/Products/Release/Rivulet.app
+app=$build/Build/Products/Release/Reprise.app
 built=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")
 [[ $built == "$version" ]] || { echo "App is version $built, not $version" >&2; exit 1; }
 
@@ -49,11 +49,11 @@ else
   echo "Note: could not fetch the published appcast (no release yet?), skipping the build number check"
 fi
 
-zip=$stage/Rivulet-$version-arm64.zip
+zip=$stage/Reprise-$version-arm64.zip
 ditto -c -k --keepParent "$app" "$zip"
 
 tools=$build/SourcePackages/artifacts/sparkle/Sparkle/bin
 "$tools/generate_appcast" --download-url-prefix "https://github.com/$repo/releases/download/$tag/" "$stage"
 
 gh release create "$tag" "$zip" "$stage/appcast.xml" --repo "$repo" --target main \
-  --title "Rivulet for Mac $tag" --generate-notes
+  --title "Reprise for Mac $tag" --generate-notes

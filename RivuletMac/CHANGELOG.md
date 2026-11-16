@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Rivulet is now Reprise, with a new icon. Your settings, sign-ins and updates carry over. After updating, the app file may still be called Rivulet.app; quit it and rename it in Finder if you like.
+
 ## 0.69
 
 - Music: the waveform shows each song's quiet and loud parts instead of a solid block.
