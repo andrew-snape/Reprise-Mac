@@ -44,7 +44,7 @@ struct MacMiniPlayerView: View {
                     .frame(maxWidth: .infinity, minHeight: Self.artwork)
             }
             HStack {
-                Button("Show Rivulet") {
+                Button("Show Reprise") {
                     MacAppDelegate.showMainWindow()
                 }
                 Spacer()

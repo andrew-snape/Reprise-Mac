@@ -51,7 +51,7 @@ struct MacWhatsNewSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("What’s new in Rivulet \(notice.version)")
+            Text("What’s new in Reprise \(notice.version)")
                 .font(.title2.bold())
                 .padding(.horizontal, 24)
                 .padding(.top, 22)

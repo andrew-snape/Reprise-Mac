@@ -61,7 +61,7 @@ struct RivuletMacApp: App {
     }
 
     var body: some Scene {
-        Window("Rivulet", id: "main") {
+        Window("Reprise", id: "main") {
             MacRootView()
                 .environment(playback)
                 .environment(multiview)

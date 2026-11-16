@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="Branding/logo_glow_transparent.png" alt="Rivulet" width="220">
+<img src="Branding/logo_square_1024.png" alt="Reprise" width="160">
 
-# Rivulet for Mac
+# Reprise for Mac
 
 **Plex, music and Live TV on your Mac.**
 
@@ -14,7 +14,7 @@
 
 ## About
 
-Rivulet for Mac is a native media client for Plex and Live TV, built for Apple
+Reprise for Mac is a native media client for Plex and Live TV, built for Apple
 silicon Macs running macOS 27 or later. It brings together Plex video and music,
 Live TV from Plex or IPTV sources, and a Mac-native interface with a sidebar, menus,
 keyboard shortcuts, and full-screen playback.

@@ -32,7 +32,7 @@ enum LiveTVClientIdentity {
     /// so it is safe to send to any server and safe to log.
     static let userAgent: String = {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-        return "Rivulet/\(version)"
+        return "Reprise/\(version)"
     }()
 
     /// Headers attached to every Live TV stream load. Kept as a single value so

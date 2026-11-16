@@ -1,6 +1,6 @@
-# Rivulet for Mac - Claude Context
+# Reprise for Mac - Claude Context
 
-Rivulet for Mac is a macOS media client for Plex (video and music) and IPTV, for Apple silicon
+Reprise for Mac is a macOS media client for Plex (video and music) and IPTV, for Apple silicon
 Macs (arm64 only, macOS 27+). It is a port of Rivulet, a tvOS app; the tvOS and
 iOS apps were removed from this repo, and their shared Plex and Live TV code
 lives on in `RivuletCore/`. Views are SwiftUI with small AppKit bridges.
@@ -162,7 +162,7 @@ from the app, the app injects it at launch, before touching the stores:
 - **Entity images travel as PNG data, never a URL**: Plex image URLs carry the server
   token, and Spotlight and Shortcuts keep what they are given. A station's identifier
   is a hash of its stream address for the same reason.
-- Every Siri phrase names Rivulet (`\(.applicationName)`), and no two share a pattern.
+- Every Siri phrase names Reprise (`\(.applicationName)`), and no two share a pattern.
 - **Spotlight holds Continue Watching and favourite channels only** (`MacSpotlightIndex`),
   replaced whenever either list changes. Continue Watching empties on sign-out and on a
   server or profile switch, so the index follows and one profile's titles never show for

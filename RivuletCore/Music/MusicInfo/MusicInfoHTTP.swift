@@ -7,7 +7,7 @@ import Foundation
 nonisolated enum MusicInfoHTTP {
     static let userAgent: String = {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
-        return "Rivulet/\(version) ( https://github.com/andrew-snape/Rivulet-Mac )"
+        return "Reprise/\(version) ( https://github.com/andrew-snape/Reprise-Mac )"
     }()
 
     private static let session: URLSession = {

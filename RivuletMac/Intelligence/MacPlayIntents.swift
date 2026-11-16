@@ -111,7 +111,7 @@ struct StartMusicRadioIntent: AudioPlaybackIntent {
 /// Pause, resume, next and previous act on what is in front, as the media keys do.
 struct PausePlaybackIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Pause"
-    static let description = IntentDescription("Pauses whatever Rivulet is playing.")
+    static let description = IntentDescription("Pauses whatever Reprise is playing.")
 
     func perform() async throws -> some IntentResult {
         try await IntentActions.transport { $0.remotePause() }
@@ -121,7 +121,7 @@ struct PausePlaybackIntent: AudioPlaybackIntent {
 
 struct ResumePlaybackIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Resume"
-    static let description = IntentDescription("Resumes whatever Rivulet was playing.")
+    static let description = IntentDescription("Resumes whatever Reprise was playing.")
 
     func perform() async throws -> some IntentResult {
         try await IntentActions.transport { $0.remotePlay() }

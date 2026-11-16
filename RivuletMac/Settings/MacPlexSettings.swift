@@ -67,7 +67,7 @@ struct MacPlexSettings: View {
         .alert("Couldn't Connect", isPresented: $switchFailed) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("That server didn't answer. Rivulet is still using the previous one.")
+            Text("That server didn't answer. Reprise is still using the previous one.")
         }
     }
 }

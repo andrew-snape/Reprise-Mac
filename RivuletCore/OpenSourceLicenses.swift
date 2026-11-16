@@ -39,17 +39,17 @@ enum OpenSourceLicenses {
     static let ffmpegSourceURL = "https://github.com/superuser404notfound/FFmpegBuild"
 
     /// Where the corresponding AetherEngine source for the version linked by this app can be
-    /// obtained, as required to satisfy the LGPL v3. Rivulet links the upstream release
+    /// obtained, as required to satisfy the LGPL v3. Reprise links the upstream release
     /// unmodified; this URL and the tag cited in the entry below must track the SPM pin.
     static let aetherSourceURL = "https://github.com/superuser404notfound/AetherEngine"
 
     /// Shown at the top of the Licenses & Legal screen.
     static let appLicense = """
-    Rivulet is distributed under the PolyForm Noncommercial License 1.0.0, which permits \
+    Reprise is distributed under the PolyForm Noncommercial License 1.0.0, which permits \
     use for noncommercial purposes. The complete license text is included with the source \
     distribution.
 
-    Rivulet is a client for media you provide. It does not host, supply, or distribute any \
+    Reprise is a client for media you provide. It does not host, supply, or distribute any \
     video, audio, or channel content of its own.
 
     This product uses the TMDB API but is not endorsed or certified by TMDB. Metadata and \
@@ -110,7 +110,7 @@ enum OpenSourceLicenses {
             ),
             Entry(
                 name: "GNU FriBidi",
-                summary: "Used by libass for bidirectional text. FriBidi 1.0.16, statically linked and used under the GNU Lesser General Public License, version 2.1, whose full text is reproduced in the FFmpeg entry above. It is built unmodified from https://github.com/fribidi/fribidi (tag v1.0.16); https://github.com/l984-451/LibassBuild holds the build script, and Rivulet's own source is public, so the app can be rebuilt against a modified FriBidi.",
+                summary: "Used by libass for bidirectional text. FriBidi 1.0.16, statically linked and used under the GNU Lesser General Public License, version 2.1, whose full text is reproduced in the FFmpeg entry above. It is built unmodified from https://github.com/fribidi/fribidi (tag v1.0.16); https://github.com/l984-451/LibassBuild holds the build script, and Reprise's own source is public, so the app can be rebuilt against a modified FriBidi.",
                 licenseText: ffmpegLGPL
             ),
             Entry(

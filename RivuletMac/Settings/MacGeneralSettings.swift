@@ -33,13 +33,13 @@ struct MacGeneralSettings: View {
 
             Section {
                 Toggle("Check for Updates Automatically", isOn: $checksAutomatically)
-                Toggle("Install Updates When Rivulet Quits", isOn: $installsAutomatically)
+                Toggle("Install Updates When Reprise Quits", isOn: $installsAutomatically)
                     .disabled(!checksAutomatically)
             } header: {
                 Text("Software Update")
             } footer: {
                 HStack {
-                    Text("Rivulet \(version)").foregroundStyle(.secondary)
+                    Text("Reprise \(version)").foregroundStyle(.secondary)
                     Spacer()
                     Button("Check Now") { updater.checkForUpdates() }
                 }

@@ -6,7 +6,7 @@ import CoreSpotlight
 import Observation
 
 // Spotlight lists two things from Rivulet: Continue Watching and the favourite
-// Live TV channels. Choosing one opens Rivulet and plays it.
+// Live TV channels. Choosing one opens Reprise and plays it.
 //
 // Continue Watching is mirrored, not added to: the index is replaced whenever
 // the list changes, and the list empties on sign-out and on a server or profile

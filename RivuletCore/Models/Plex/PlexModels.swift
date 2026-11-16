@@ -16,7 +16,7 @@ import Foundation
 /// Plex API constants
 enum PlexAPI: Sendable {
     static let baseUrl = "https://plex.tv"
-    nonisolated static let productName = "Rivulet"
+    nonisolated static let productName = "Reprise"
 
     /// Host-injected, defaulting to the tvOS app's values. The iOS app
     /// overrides both at launch (RivuletiOSApp.init), before any request is

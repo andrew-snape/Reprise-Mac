@@ -6,14 +6,14 @@ import Darwin
 import Sparkle
 import SwiftUI
 
-/// The App menu's "About Rivulet": the standard panel, with the versions of
+/// The App menu's "About Reprise": the standard panel, with the versions of
 /// what plays the media underneath. Every version is read from the running
 /// code, never typed in, so none goes stale when a dependency moves. libdovi
 /// has no way to report its version, so it is not listed.
 struct MacAboutCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
-            Button("About Rivulet") { MacAbout.show() }
+            Button("About Reprise") { MacAbout.show() }
         }
     }
 }

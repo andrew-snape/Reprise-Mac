@@ -400,11 +400,11 @@ nonisolated enum IntentFailure: Error, CustomLocalizedStringResourceConvertible 
 
     var localizedStringResource: LocalizedStringResource {
         switch self {
-        case .signedOut: "Sign in to Plex in Rivulet first."
-        case .notFound: "Rivulet couldn't find that."
+        case .signedOut: "Sign in to Plex in Reprise first."
+        case .notFound: "Reprise couldn't find that."
         case .nothingToResume: "There's nothing in Continue Watching."
-        case .nothingPlaying: "Nothing is playing in Rivulet."
-        case .couldNotPlay(let name): "Rivulet couldn't play \(name)."
+        case .nothingPlaying: "Nothing is playing in Reprise."
+        case .couldNotPlay(let name): "Reprise couldn't play \(name)."
         }
     }
 }

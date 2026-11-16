@@ -72,7 +72,7 @@ struct MacServerForm: View {
                 TextField("Username", text: $username)
                 SecureField("Password", text: $password)
             } footer: {
-                Text("Optional. Signing in lets Rivulet read recordings; watching works without it.")
+                Text("Optional. Signing in lets Reprise read recordings; watching works without it.")
                     .foregroundStyle(.secondary)
             }
         }
