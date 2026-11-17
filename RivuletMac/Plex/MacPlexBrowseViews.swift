@@ -346,7 +346,8 @@ struct MacPlexHubGridView: View {
 
 // MARK: - Search
 
-/// Movies, shows and episodes across the server's video libraries.
+/// Movies, shows and episodes, then artists, albums, songs and playlists,
+/// across the server's libraries.
 struct MacPlexSearchView: View {
     @Binding var query: String
     @Environment(MacPlexSession.self) private var plex
@@ -363,6 +364,10 @@ struct MacPlexSearchView: View {
             ("Movies", ["movie"]),
             ("TV Shows", ["show", "season"]),
             ("Episodes", ["episode"]),
+            ("Artists", ["artist"]),
+            ("Albums", ["album"]),
+            ("Songs", ["track"]),
+            ("Playlists", ["playlist"]),
         ]
         return sections.compactMap { title, types in
             let items = results.filter { types.contains($0.type ?? "") }
@@ -378,7 +383,7 @@ struct MacPlexSearchView: View {
                     systemImage: "magnifyingglass",
                     description: Text(MacSmartSearch.isAvailable
                         ? "Search for a title, or describe what you'd like to watch."
-                        : "Type in the search field to find movies, TV shows and episodes.")
+                        : "Type in the search field to find movies, TV shows, episodes and music.")
                 )
             } else if let error {
                 ContentUnavailableView("Couldn't Search", systemImage: "exclamationmark.triangle", description: Text(error))
@@ -391,12 +396,20 @@ struct MacPlexSearchView: View {
                             MacPlexRail(title: smart.label, items: smart.items) { MacPlexPosterCard(item: $0, width: $1) }
                         }
                         ForEach(groups, id: \.title) { group in
-                            MacPlexRail(title: group.title, items: group.items,
-                                        base: group.items.first?.type == "episode" ? 260 : MacTile.poster) { item, width in
-                                if item.type == "episode" {
-                                    MacPlexContinueCard(item: item, width: width)
-                                } else {
-                                    MacPlexPosterCard(item: item, width: width)
+                            if Self.isMusic(group.items.first) {
+                                MacShelfRow(items: group.items) {
+                                    Text(group.title).font(.title2.bold())
+                                } tile: { item, width in
+                                    MacMusicTileLink(item: item, width: width)
+                                }
+                            } else {
+                                MacPlexRail(title: group.title, items: group.items,
+                                            base: group.items.first?.type == "episode" ? 260 : MacTile.poster) { item, width in
+                                    if item.type == "episode" {
+                                        MacPlexContinueCard(item: item, width: width)
+                                    } else {
+                                        MacPlexPosterCard(item: item, width: width)
+                                    }
                                 }
                             }
                         }
@@ -423,6 +436,10 @@ struct MacPlexSearchView: View {
         smart = found
     }
 
+    private static func isMusic(_ item: PlexMetadata?) -> Bool {
+        ["artist", "album", "track", "playlist"].contains(item?.type ?? "")
+    }
+
     private func search() async {
         let value = trimmedQuery
         error = nil
@@ -435,7 +452,7 @@ struct MacPlexSearchView: View {
         try? await Task.sleep(for: .milliseconds(300))
         guard !Task.isCancelled else { return }
         do {
-            results = try await plex.search(value)
+            results = try await plex.searchAll(value)
         } catch {
             // A newer keystroke cancelled this request; the next task owns the state.
             if Task.isCancelled || isCancellationError(error) { return }

@@ -165,6 +165,11 @@ extension MacPlexSession {
         try await search(query, types: ["artist", "album", "track", "playlist"])
     }
 
+    /// Video and music results from one request, for the Search page.
+    func searchAll(_ query: String) async throws -> [PlexMetadata] {
+        try await search(query, types: ["movie", "show", "season", "episode", "artist", "album", "track", "playlist"])
+    }
+
     /// One row per item: /search returns every matching type and can repeat
     /// an item across result groups.
     private func search(_ query: String, types: Set<String>) async throws -> [PlexMetadata] {
