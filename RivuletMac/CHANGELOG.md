@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.78
+
+- Music: a new bottom bar, all in one row: the cover edge to edge, title, artist and album (click to go to them), the waveform to seek, your stars and a wider volume, tinted by the cover. The radio bar matches it.
+- Music: Mixes for You, built from the artists you play most and lately with the artists like them in your library, then radio from there.
+- Music: On This Day, the albums released on today's date in years gone by.
+- Music: Compilations, Tracks and Downloaded lists beside Artists, Albums and Playlists. Downloaded shows the songs already kept on this Mac.
+- Music: the library page, the artist and album pages and the bar take on Plex's colours for the cover, not just one tint.
+
 ## 0.77
 
 - Fixed a crash that could happen soon after waking the Mac, when Siri or Shortcuts asked Reprise for its actions before the network was back.
