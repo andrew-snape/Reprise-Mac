@@ -35,16 +35,16 @@ nonisolated struct VideoEntity: AppEntity {
 
 nonisolated struct VideoQuery: EntityStringQuery {
     func entities(for identifiers: [String]) async throws -> [VideoEntity] {
-        try await IntentStore.videos(ids: identifiers)
+        do { return try await IntentStore.videos(ids: identifiers) } catch { throw IntentFailure(error) }
     }
 
     func entities(matching string: String) async throws -> [VideoEntity] {
-        try await IntentStore.videos(matching: string)
+        do { return try await IntentStore.videos(matching: string) } catch { throw IntentFailure(error) }
     }
 
     /// Continue Watching: what Siri offers first, and what it learns names from.
     func suggestedEntities() async throws -> [VideoEntity] {
-        try await IntentStore.continueWatching()
+        do { return try await IntentStore.continueWatching() } catch { throw IntentFailure(error) }
     }
 }
 
@@ -147,16 +147,16 @@ nonisolated struct MusicEntity: AppEntity {
 
 nonisolated struct MusicQuery: EntityStringQuery {
     func entities(for identifiers: [String]) async throws -> [MusicEntity] {
-        try await IntentStore.music(ids: identifiers)
+        do { return try await IntentStore.music(ids: identifiers) } catch { throw IntentFailure(error) }
     }
 
     func entities(matching string: String) async throws -> [MusicEntity] {
-        try await IntentStore.music(matching: string)
+        do { return try await IntentStore.music(matching: string) } catch { throw IntentFailure(error) }
     }
 
     /// Playlists: the music most often asked for by name.
     func suggestedEntities() async throws -> [MusicEntity] {
-        try await IntentStore.playlists()
+        do { return try await IntentStore.playlists() } catch { throw IntentFailure(error) }
     }
 }
 
@@ -179,6 +179,11 @@ enum IntentStore {
         let plex = try plex()
         let (serverURL, token) = try plex.configuration()
         return try await plex.network.getMetadata(serverURL: serverURL, authToken: token, ratingKey: ratingKey)
+    }
+
+    /// `item(_:)` for an intent to act on, with errors Siri can be sent.
+    static func itemForIntent(_ ratingKey: String) async throws -> PlexMetadata {
+        do { return try await item(ratingKey) } catch { throw IntentFailure(error) }
     }
 
     static func videos(ids: [String]) async throws -> [VideoEntity] {
@@ -397,6 +402,14 @@ nonisolated enum IntentFailure: Error, CustomLocalizedStringResourceConvertible 
     case nothingToResume
     case nothingPlaying
     case couldNotPlay(String)
+    case unreachable
+
+    /// Any other error (a `URLError` above all) becomes `.unreachable`. Errors go
+    /// back to Siri over XPC, and a `URLError`'s user info holds Network objects
+    /// that can't be encoded: one thrown from a query crashes the app.
+    init(_ error: any Error) {
+        self = error as? IntentFailure ?? .unreachable
+    }
 
     var localizedStringResource: LocalizedStringResource {
         switch self {
@@ -405,6 +418,7 @@ nonisolated enum IntentFailure: Error, CustomLocalizedStringResourceConvertible 
         case .nothingToResume: "There's nothing in Continue Watching."
         case .nothingPlaying: "Nothing is playing in Reprise."
         case .couldNotPlay(let name): "Reprise couldn't play \(name)."
+        case .unreachable: "Reprise couldn't reach your Plex server."
         }
     }
 }

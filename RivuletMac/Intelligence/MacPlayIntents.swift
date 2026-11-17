@@ -155,13 +155,15 @@ struct PreviousTrackIntent: AudioPlaybackIntent {
 enum IntentActions {
     /// Returns the name Siri says back.
     static func playVideo(id: String) async throws -> String {
-        let item = try await IntentStore.item(id)
+        let item = try await IntentStore.itemForIntent(id)
         try await play(item)
         return IntentStore.spokenName(of: item)
     }
 
     static func resumeWatching() async throws -> String {
-        guard let item = try await IntentStore.continueWatchingItems().first else {
+        let items: [PlexMetadata]
+        do { items = try await IntentStore.continueWatchingItems() } catch { throw IntentFailure(error) }
+        guard let item = items.first else {
             throw IntentFailure.nothingToResume
         }
         try await play(item)
@@ -200,7 +202,7 @@ enum IntentActions {
     }
 
     static func playMusic(id: String, action: MacMusicAction) async throws {
-        let item = try await IntentStore.item(id)
+        let item = try await IntentStore.itemForIntent(id)
         guard let music = MacAppDelegate.music else { throw IntentFailure.notFound }
         // A Plex title has the window; music from Siri takes over from it.
         MacAppDelegate.vod?.close()
