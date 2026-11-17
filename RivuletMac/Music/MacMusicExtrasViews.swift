@@ -5,9 +5,13 @@ import SwiftUI
 
 // MARK: - Waveform
 
-/// Now Playing's seek bar drawn as the track's loudness over time, from Plex's
-/// analysis. Falls back to the plain slider until (or unless) Plex has one.
+/// The seek bar drawn as the track's loudness over time, from Plex's analysis,
+/// in Now Playing and the bar. Falls back to the plain slider until (or unless)
+/// Plex has one.
 struct MacMusicWaveformScrubber: View {
+    var height: CGFloat = 34
+    var played: Color = .white.opacity(0.95)
+    var unplayed: Color = .white.opacity(0.28)
     @Environment(MacMusicPlayback.self) private var music
     @Environment(MacPlexSession.self) private var plex
     @State private var shape: [Double]?
@@ -50,9 +54,9 @@ struct MacMusicWaveformScrubber: View {
                         let height = max(2, CGFloat(value) * size.height)
                         let x = CGFloat(index) * step + (step - bar) / 2
                         let rect = CGRect(x: x, y: (size.height - height) / 2, width: bar, height: height)
-                        let played = (CGFloat(index) + 0.5) / CGFloat(count) <= fraction
+                        let isPlayed = (CGFloat(index) + 0.5) / CGFloat(count) <= fraction
                         context.fill(Path(roundedRect: rect, cornerRadius: bar / 2),
-                                     with: .color(.white.opacity(played ? 0.95 : 0.28)))
+                                     with: .color(isPlayed ? played : unplayed))
                     }
                 }
                 .contentShape(Rectangle())
@@ -68,7 +72,7 @@ struct MacMusicWaveformScrubber: View {
                         }
                 )
             }
-            .frame(height: 34)
+            .frame(height: height)
             .accessibilityElement()
             .accessibilityLabel("Position")
             .accessibilityValue(MacMusicScrubber.format(time))

@@ -6,41 +6,41 @@ import SwiftUI
 
 // MARK: - Bar
 
-/// The slim player along the bottom of the window while music is queued.
-/// The artwork and title open Now Playing.
+/// The player along the bottom of the window while music is queued, in one
+/// row: the cover flush to the edge, title, artist and album, the transport,
+/// the waveform, stars and volume. The cover and title open Now Playing; the
+/// artist and album go to their pages. A narrow window drops the stars, then
+/// the volume slider.
 struct MacMusicBar: View {
+    /// The bottom bar's height, shared by the radio bar so switching never jumps.
+    static let height: CGFloat = 70
+
     @Environment(MacMusicPlayback.self) private var music
+    @Environment(\.plexActions) private var actions
     @AppStorage(MacAirPlayRoute.fromPlayerKey) private var airPlayFromPlayer = false
+    @State private var width: CGFloat = 1200
 
     var body: some View {
         if let track = music.track {
-            HStack(spacing: 16) {
+            HStack(spacing: 14) {
                 Button { music.isNowPlayingShown = true } label: {
-                    HStack(spacing: 10) {
-                        MacMusicArtwork(item: track, size: 42)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(track.displayTitle).font(.callout.weight(.semibold)).lineLimit(1)
-                            Text(music.problem ?? track.trackArtist ?? "")
-                                .font(.caption)
-                                .foregroundStyle(music.problem == nil ? Color.secondary : Color.orange)
-                                .lineLimit(1)
-                        }
-                    }
-                    .frame(width: 240, alignment: .leading)
-                    .contentShape(Rectangle())
+                    MacMusicArtwork(item: track, size: Self.height, cornerRadius: 0)
                 }
                 .buttonStyle(.plain)
                 .help("Show Now Playing")
 
-                VStack(spacing: 4) {
-                    MacMusicTransport(size: .small)
-                    MacMusicScrubber()
-                }
-                .frame(maxWidth: 560)
-                .frame(maxWidth: .infinity)
+                info(track)
+                    .frame(width: width >= 1100 ? 230 : 180, alignment: .leading)
+
+                MacMusicTransport(size: .small)
+
+                MacMusicWaveformScrubber(height: 26, played: .accentColor,
+                                         unplayed: Color(nsColor: .tertiaryLabelColor))
+                    .frame(minWidth: 140, maxWidth: .infinity)
 
                 HStack(spacing: 12) {
-                    MacMusicVolume().frame(width: 110)
+                    if width >= 1180 { MacMusicStars(item: track) }
+                    MacMusicVolume(showsSlider: width >= 1020).frame(width: width >= 1020 ? 120 : 18)
                     MacAirPlayButton(player: airPlayFromPlayer ? music.player.airPlayPlayer : nil,
                                      tint: .secondaryLabelColor)
                         .frame(width: 22, height: 22)
@@ -51,17 +51,75 @@ struct MacMusicBar: View {
                     .buttonStyle(.borderless)
                     .accessibilityLabel("Queue")
                     .help("Queue")
+                    Menu {
+                        menu(for: track)
+                    } label: {
+                        Image(systemName: "ellipsis")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .accessibilityLabel("More")
+                    .help("More")
                 }
-                .frame(width: 196, alignment: .trailing)
+                .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(.bar)
+            .padding(.trailing, 14)
+            .frame(height: Self.height)
+            .background {
+                // A faint wash of the cover's colours over the bar material.
+                ZStack {
+                    Rectangle().fill(.bar)
+                    MacMusicWash(item: track).opacity(0.22)
+                }
+            }
             .overlay(alignment: .top) { Divider() }
-            .contextMenu {
-                Button("Stop", systemImage: "stop.fill") { music.stop() }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+            .contextMenu { menu(for: track) }
+        }
+    }
+
+    private func info(_ track: PlexMetadata) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Button { music.isNowPlayingShown = true } label: {
+                Text(track.displayTitle).font(.callout.weight(.semibold))
+            }
+            .help("Show Now Playing")
+            if let problem = music.problem {
+                Text(problem).foregroundStyle(.orange)
+            } else {
+                if let artist = track.trackArtist {
+                    Button(artist) { if let stub = track.artistStub { actions.open(stub) } }
+                        .help("Go to Artist")
+                }
+                if let album = track.parentTitle {
+                    Button(album) { if let stub = track.albumStub { actions.open(stub) } }
+                        .foregroundStyle(.tertiary)
+                        .help("Go to Album")
+                }
             }
         }
+        .buttonStyle(.plain)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+    }
+
+    /// The playing song's own actions. Not `MacMusicItemMenu`: its Play would
+    /// replace the queue with this one song.
+    @ViewBuilder
+    private func menu(for track: PlexMetadata) -> some View {
+        Button("Show Now Playing", systemImage: "music.note") { music.isNowPlayingShown = true }
+        Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") { music.perform(.radio, on: track) }
+        Section {
+            if let album = track.albumStub {
+                Button("Go to Album", systemImage: "square.stack") { actions.open(album) }
+            }
+            if let artist = track.artistStub {
+                Button("Go to Artist", systemImage: "music.mic") { actions.open(artist) }
+            }
+        }
+        Button("Stop", systemImage: "stop.fill") { music.stop() }
     }
 }
 
@@ -77,7 +135,7 @@ struct MacMusicTransport: View {
 
     var body: some View {
         let large = size == .large
-        HStack(spacing: large ? 34 : 22) {
+        HStack(spacing: large ? 34 : 18) {
             Button { music.setShuffled(!music.queue.isShuffled) } label: {
                 Image(systemName: "shuffle")
             }
@@ -92,9 +150,19 @@ struct MacMusicTransport: View {
             .help("Previous")
 
             Button { music.togglePlayPause() } label: {
-                Image(systemName: music.isPlaying ? "pause.fill" : "play.fill")
-                    .font(large ? .system(size: 34) : .title2)
-                    .frame(width: large ? 44 : 28)
+                if large {
+                    Image(systemName: music.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 34))
+                        .frame(width: 44)
+                } else {
+                    // The bar's Play sits in a disc, as the button to find.
+                    Image(systemName: music.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.title3)
+                        .foregroundStyle(.primary)
+                        .frame(width: 34, height: 34)
+                        .background(.quaternary, in: Circle())
+                        .contentShape(Circle())
+                }
             }
             .accessibilityLabel(music.isPlaying ? "Pause" : "Play")
             .help(music.isPlaying ? "Pause" : "Play")
@@ -159,6 +227,7 @@ struct MacMusicScrubber: View {
 }
 
 struct MacMusicVolume: View {
+    var showsSlider = true
     @Environment(MacMusicPlayback.self) private var music
 
     var body: some View {
@@ -171,8 +240,10 @@ struct MacMusicVolume: View {
             .buttonStyle(.borderless)
             .accessibilityLabel(player.isMuted ? "Unmute" : "Mute")
             .help(player.isMuted ? "Unmute" : "Mute")
-            Slider(value: Binding(get: { Double(player.volume) }, set: { player.setVolume(Float($0)) }), in: 0...1)
-                .controlSize(.mini)
+            if showsSlider {
+                Slider(value: Binding(get: { Double(player.volume) }, set: { player.setVolume(Float($0)) }), in: 0...1)
+                    .controlSize(.mini)
+            }
         }
         .foregroundStyle(.secondary)
     }

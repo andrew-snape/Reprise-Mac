@@ -34,7 +34,7 @@ nonisolated struct MacMusicSource: Sendable {
 
 /// What a music library page lists.
 nonisolated enum MacMusicKind: String, CaseIterable, Identifiable {
-    case artists, albums, playlists, history
+    case artists, albums, compilations, tracks, playlists, downloaded, history
 
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
@@ -43,9 +43,14 @@ nonisolated enum MacMusicKind: String, CaseIterable, Identifiable {
         switch self {
         case .artists: 8
         case .albums: 9
-        case .playlists, .history: nil
+        case .tracks: 10
+        case .compilations, .playlists, .downloaded, .history: nil
         }
     }
+    /// Listed as songs, not tiles.
+    var isTracks: Bool { self == .tracks || self == .downloaded }
+    /// Fetched a page at a time and sorted by the toolbar's menu.
+    var isPaged: Bool { plexType != nil || self == .compilations }
 }
 
 extension MacPlexSession {
@@ -59,6 +64,7 @@ extension MacPlexSession {
         start: Int,
         size: Int
     ) async throws -> (items: [PlexMetadata], totalSize: Int?) {
+        if kind == .compilations { return try await compilationsPage(library, sort: sort, start: start, size: size) }
         guard let type = kind.plexType else { return ([], 0) }
         let (serverURL, token) = try configuration()
         let key = "/library/sections/\(library.key)/all?type=\(type)&sort=\(sort.apiParameter)"

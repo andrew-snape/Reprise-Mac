@@ -79,8 +79,9 @@ extension MacPlexSession {
     /// Plex's four UltraBlur colours for the item's cover: top left, top right,
     /// bottom right, bottom left.
     func ultraBlurColors(of item: PlexMetadata) async -> [Color]? {
-        guard let path = item.squareArtPath, let key = item.ratingKey else { return nil }
-        let cacheKey = "\(key)|\(path)"
+        // By the art alone: every song of an album shares its cover's colours.
+        guard let path = item.squareArtPath else { return nil }
+        let cacheKey = "art|\(path)"
         if let hit = extras.colors[cacheKey] { return hit }
         guard !extras.misses.contains(cacheKey), let (serverURL, token) = try? configuration() else { return nil }
         let hex = (try? await network.getUltraBlurColors(serverURL: serverURL, authToken: token, path: path)) ?? []

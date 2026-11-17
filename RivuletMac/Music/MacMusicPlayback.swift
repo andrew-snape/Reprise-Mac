@@ -94,6 +94,14 @@ final class MacMusicPlayback {
         loadCurrent()
     }
 
+    /// Plays a mix's songs, then keeps going with tracks like the one playing.
+    func startMix(_ tracks: [PlexMetadata]) {
+        guard !tracks.isEmpty else { return }
+        queue.replace(with: tracks, isRadio: true)
+        radio = .similar
+        loadCurrent()
+    }
+
     /// Shuffles a whole library, endlessly.
     func startLibraryRadio(_ library: PlexLibrary) {
         guard let plex else { return }

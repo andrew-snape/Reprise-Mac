@@ -294,10 +294,12 @@ from the app, the app injects it at launch, before touching the stores:
   - Lyrics: the lyric stream (`streamType` 4) in a track's full metadata, fetched from its `key`,
     parsed by `MusicLyrics` (LRC or plain). Now Playing's side pane offers Up Next / Lyrics only
     when the track has some; timed lines follow the song and click to seek.
-  - Waveform: `/library/streams/{id}/levels?subsample=110` (dB every 100 ms) drawn as Now
-    Playing's seek bar, scaled to the song's own range (10th percentile to peak, min 6 dB, curved); the plain slider until then.
+  - Waveform: `/library/streams/{id}/levels?subsample=110` (dB every 100 ms) drawn as the seek
+    bar in Now Playing (white) and the bottom bar (accent), sharing one cache entry, scaled to
+    the song's own range (10th percentile to peak, min 6 dB, curved); the plain slider until then.
   - UltraBlur: `/services/ultrablur/colors?url=<library path>` gives four corner colours, drawn
-    as a `MeshGradient` behind Now Playing (note Plex's order: TL, TR, BR, BL).
+    as a `MeshGradient` behind Now Playing (note Plex's order: TL, TR, BR, BL). Cached by art
+    path, not rating key, so an album's songs share one request. Plex sends them already dark.
   - History: `/status/sessions/history/all` for the library, newest first, as the library's
     History tab. `accountID` is 1 for the server owner, the Home member's plex.tv ID otherwise,
     and left out on a server the account does not own (Plex limits it to the caller anyway).
@@ -307,6 +309,22 @@ from the app, the app injects it at launch, before touching the stores:
     server play queue (`POST /playQueues`, `server://<machine>/com.plexapp.plugins.library/...`),
     and every timeline carries `containerKey` and `playQueueItemID`. The local queue stays the
     one that plays; the server copy is rebuilt, never edited, and dropped when music stops.
+- **Browse lists Plex does not send** (`MacPlexSession+MusicBrowse`). `/hubs/sections` has no
+  Mixes for You or On This Day, with or without `includeStations` (measured on PMS 1.43); Plexamp
+  builds both itself, and so do we:
+  - Mixes: seeds are the artists played lately (local recents, then Plex's recently played row)
+    and most (`type=8&sort=viewCount:desc`), at most six, never Various Artists. Each adds
+    `/library/metadata/{id}/similar` (library artists). Playing takes popular tracks of the
+    artist and five similar ones (`startMix`), then radio. Plex's own artist station
+    (`.../station/{uuid}`) needs a server play queue, so it is not used.
+  - On This Day: albums whose `originallyAvailableAt` is today's month and day in any year since
+    1950, as `push=1&…&pop=1` groups joined by `or=1`, 25 years a request.
+  - Compilations: albums by Various Artists OR `subformat=Compilation`. `compilation=1` is ignored
+    by Plex (it returns every album).
+  - Downloaded: `MacMusicCache.keptTracks()` reads rating key and part from the file names, then
+    `/library/metadata/k1,k2,…`; a file whose part id or library does not match is left out.
+- **Colour**: `MacMusicWash` is the one source of cover colour (UltraBlur, else the single tint):
+  the bar, the top of the library page (what is playing) and the artist and album heroes.
 - Radio refills Up Next below 5 tracks: sonically similar (`/nearest`) when the
   server has analysed the library, else random tracks from it.
 - Now Playing and the media keys: Plex title first, then music when it is

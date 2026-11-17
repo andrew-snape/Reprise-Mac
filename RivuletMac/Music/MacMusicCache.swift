@@ -127,6 +127,15 @@ actor MacMusicCache {
         trim()
     }
 
+    /// The songs on disk, most recently used first, read from their file names.
+    func keptTracks() -> [(ratingKey: String, partID: Int)] {
+        kept().sorted { $0.date > $1.date }.compactMap { file in
+            let fields = file.url.deletingPathExtension().lastPathComponent.split(separator: "-")
+            guard fields.count == 3, let part = Int(fields[1]) else { return nil }
+            return (String(fields[0]), part)
+        }
+    }
+
     private func kept() -> [(url: URL, size: Int64, date: Date)] {
         guard let directory = Self.directory,
               let urls = try? FileManager.default.contentsOfDirectory(

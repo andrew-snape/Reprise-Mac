@@ -407,8 +407,8 @@ struct MacRadioBar: View {
         if let station = radio.station {
             HStack(spacing: 16) {
                 Button { showsDetails.toggle() } label: {
-                    HStack(spacing: 10) {
-                        MacRadioArtwork(radio: radio, size: 42)
+                    HStack(spacing: 14) {
+                        MacRadioArtwork(radio: radio, size: MacMusicBar.height, cornerRadius: 0)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(radio.song?.title ?? station.name)
                                 .font(.callout.weight(.semibold))
@@ -458,8 +458,8 @@ struct MacRadioBar: View {
                 }
                 .frame(width: 196, alignment: .trailing)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.trailing, 14)
+            .frame(height: MacMusicBar.height)
             .background(.bar)
             .overlay(alignment: .top) { Divider() }
         }
@@ -495,6 +495,8 @@ extension MacRadioPlayback {
 struct MacRadioArtwork: View {
     let radio: MacRadioPlayback
     let size: CGFloat
+    /// Overrides the corner that follows the size (0 for square art).
+    var cornerRadius: CGFloat?
 
     var body: some View {
         ZStack {
@@ -507,7 +509,7 @@ struct MacRadioArtwork: View {
         }
         .frame(width: size, height: size)
         .background(.quaternary)
-        .clipShape(RoundedRectangle(cornerRadius: size > 100 ? MacTheme.cardCorner : 6, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius ?? (size > 100 ? MacTheme.cardCorner : 6), style: .continuous))
     }
 }
 

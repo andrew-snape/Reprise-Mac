@@ -261,6 +261,8 @@ struct MacMusicPopularityBar: View {
 /// artist's backdrop behind it when there is one.
 struct MacMusicHero<Content: View>: View {
     let tint: Color?
+    /// The artist or album whose cover colours wash the top of the page.
+    var item: PlexMetadata?
     var backdrop: URL?
     @ViewBuilder let content: () -> Content
 
@@ -273,6 +275,8 @@ struct MacMusicHero<Content: View>: View {
                 ZStack {
                     LinearGradient(colors: [(tint ?? .clear).opacity(0.9), MacTheme.background],
                                    startPoint: .top, endPoint: .bottom)
+                    // Plex's four colours over the single tint once they arrive.
+                    MacMusicWash(item: item, fadesOut: true).opacity(0.9)
                     if let backdrop {
                         MacPlexImage(url: backdrop)
                             .opacity(0.5)
