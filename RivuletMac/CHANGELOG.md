@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.79
+
+- Music: Favourites, the songs, albums and artists you've rated four stars or more, here, in Plexamp or anywhere else in Plex.
+- Search now finds artists, albums, songs and playlists as well as movies and shows.
+
 ## 0.78
 
 - Music: a new bottom bar, all in one row: the cover edge to edge, title, artist and album (click to go to them), the waveform to seek, your stars and a wider volume, tinted by the cover. The radio bar matches it.
