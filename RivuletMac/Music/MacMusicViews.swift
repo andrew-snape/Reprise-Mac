@@ -160,7 +160,7 @@ struct MacMusicTileLink: View {
 // MARK: - Library
 
 /// A music library: mixes, Plex's own rows and On This Day, then artists,
-/// albums, compilations, songs, playlists, downloads and history. The top of the
+/// albums, compilations, songs, favourites, playlists, downloads and history. The top of the
 /// page takes on the colours of what is playing.
 struct MacMusicLibraryView: View {
     let library: PlexLibrary
@@ -172,6 +172,8 @@ struct MacMusicLibraryView: View {
     @State private var mixes: [MacMusicMix] = []
     @State private var onThisDay: [PlexMetadata] = []
     @State private var items: [PlexMetadata] = []
+    @State private var favouriteArtists: [PlexMetadata] = []
+    @State private var favouriteAlbums: [PlexMetadata] = []
     @State private var total: Int?
     @State private var isLoading = false
     @State private var error: String?
@@ -244,16 +246,21 @@ struct MacMusicLibraryView: View {
                         .frame(maxWidth: .infinity)
                 } else if kind == .history {
                     MacMusicHistoryList(library: library)
-                } else if items.isEmpty, !isLoading, loadedKey != nil {
+                } else if items.isEmpty, favouriteArtists.isEmpty, favouriteAlbums.isEmpty, !isLoading, loadedKey != nil {
                     if kind == .downloaded {
                         ContentUnavailableView("No Downloaded Songs", systemImage: "arrow.down.circle",
                                                description: Text("Songs you play are kept on this Mac as Settings > Music allows."))
+                            .frame(maxWidth: .infinity)
+                    } else if kind == .favourites {
+                        ContentUnavailableView("No Favourites", systemImage: "star",
+                                               description: Text("Songs, albums and artists rated four stars or more, here or in Plexamp, gather here."))
                             .frame(maxWidth: .infinity)
                     } else {
                         ContentUnavailableView("Nothing Here", systemImage: library.icon)
                             .frame(maxWidth: .infinity)
                     }
                 } else if kind.isTracks {
+                    if kind == .favourites { favouriteShelves }
                     trackRows
                 } else {
                     MacMusicGrid(items: items, loadMore: loadMore)
@@ -298,6 +305,8 @@ struct MacMusicLibraryView: View {
     private func reload() async {
         let key = queryKey
         items = []
+        favouriteArtists = []
+        favouriteAlbums = []
         total = nil
         isLoading = true
         defer { if key == queryKey { isLoading = false } }
@@ -317,10 +326,15 @@ struct MacMusicLibraryView: View {
                 items = playlists.uniqued()
                 total = items.count
             } else {
+                async let artists = kind == .favourites ? plex.favourites(library, type: 8) : []
+                async let albums = kind == .favourites ? plex.favourites(library, type: 9) : []
                 let page = try await plex.musicPage(library, kind: kind, sort: sort, start: 0, size: Self.pageSize)
+                let (foundArtists, foundAlbums) = await (artists, albums)
                 guard key == queryKey else { return }
                 items = page.items.uniqued()
                 total = page.totalSize
+                favouriteArtists = foundArtists.uniqued()
+                favouriteAlbums = foundAlbums.uniqued()
             }
             error = nil
             loadedKey = key
@@ -350,15 +364,39 @@ struct MacMusicLibraryView: View {
         }
     }
 
+    /// The listed songs. Favourites drop one rated down this session at once,
+    /// though Plex's list is not fetched again.
+    private var shownTracks: [PlexMetadata] {
+        kind == .favourites ? items.filter { MacMusicRatings.shared.isFavourite($0) } : items
+    }
+
     /// Songs as rows; double-click or the row's Play plays from there on.
     private var trackRows: some View {
-        ForEach(Array(items.enumerated()), id: \.element.id) { offset, track in
+        let tracks = shownTracks
+        return ForEach(Array(tracks.enumerated()), id: \.element.id) { offset, track in
             MacMusicTrackRow(track: track, number: offset + 1, showsArtwork: true) {
                 MacMusicRecents.shared.record(track)
-                music.play(items, from: offset)
+                music.play(tracks, from: offset)
             }
             .padding(.horizontal, MacTile.margin - 10)
-            .onAppear { if offset == items.count - 1 { loadMore() } }
+            .onAppear { if offset == tracks.count - 1 { loadMore() } }
+        }
+    }
+
+    /// Favourite artists and albums above the favourite songs.
+    @ViewBuilder private var favouriteShelves: some View {
+        let ratings = MacMusicRatings.shared
+        let shelves = [("Artists", favouriteArtists.filter(ratings.isFavourite)),
+                       ("Albums", favouriteAlbums.filter(ratings.isFavourite))]
+        ForEach(shelves.filter { !$0.1.isEmpty }, id: \.0) { title, shelf in
+            MacShelfRow(items: shelf) {
+                Text(title).font(.title2.bold())
+            } tile: { item, width in
+                MacMusicTileLink(item: item, width: width)
+            }
+        }
+        if !shownTracks.isEmpty, shelves.contains(where: { !$0.1.isEmpty }) {
+            Text("Songs").font(.title2.bold()).padding(.horizontal, MacTile.margin)
         }
     }
 

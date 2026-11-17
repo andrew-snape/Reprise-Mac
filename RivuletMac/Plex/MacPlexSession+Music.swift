@@ -34,7 +34,7 @@ nonisolated struct MacMusicSource: Sendable {
 
 /// What a music library page lists.
 nonisolated enum MacMusicKind: String, CaseIterable, Identifiable {
-    case artists, albums, compilations, tracks, playlists, downloaded, history
+    case artists, albums, compilations, tracks, favourites, playlists, downloaded, history
 
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
@@ -43,12 +43,12 @@ nonisolated enum MacMusicKind: String, CaseIterable, Identifiable {
         switch self {
         case .artists: 8
         case .albums: 9
-        case .tracks: 10
+        case .tracks, .favourites: 10
         case .compilations, .playlists, .downloaded, .history: nil
         }
     }
     /// Listed as songs, not tiles.
-    var isTracks: Bool { self == .tracks || self == .downloaded }
+    var isTracks: Bool { self == .tracks || self == .favourites || self == .downloaded }
     /// Fetched a page at a time and sorted by the toolbar's menu.
     var isPaged: Bool { plexType != nil || self == .compilations }
 }
@@ -67,8 +67,16 @@ extension MacPlexSession {
         if kind == .compilations { return try await compilationsPage(library, sort: sort, start: start, size: size) }
         guard let type = kind.plexType else { return ([], 0) }
         let (serverURL, token) = try configuration()
-        let key = "/library/sections/\(library.key)/all?type=\(type)&sort=\(sort.apiParameter)"
+        let filter = kind == .favourites ? "&" + PlexUserRating.favoriteFilter : ""
+        let key = "/library/sections/\(library.key)/all?type=\(type)&sort=\(sort.apiParameter)\(filter)"
         return try await network.getHubItems(serverURL: serverURL, authToken: token, hubKey: key, start: start, count: size)
+    }
+
+    /// The artists (8) or albums (9) rated above three stars, highest first.
+    func favourites(_ library: PlexLibrary, type: Int) async -> [PlexMetadata] {
+        guard let (serverURL, token) = try? configuration() else { return [] }
+        let key = "/library/sections/\(library.key)/all?type=\(type)&sort=userRating:desc,titleSort&\(PlexUserRating.favoriteFilter)"
+        return (try? await network.getHubItems(serverURL: serverURL, authToken: token, hubKey: key, start: 0, count: 60).items) ?? []
     }
 
     /// The library page's rows: Plex's own music hubs (recently played,

@@ -319,6 +319,10 @@ from the app, the app injects it at launch, before touching the stores:
     (`.../station/{uuid}`) needs a server play queue, so it is not used.
   - On This Day: albums whose `originallyAvailableAt` is today's month and day in any year since
     1950, as `push=1&…&pop=1` groups joined by `or=1`, 25 years a request.
+  - Favourites: songs (paged, toolbar sort), albums and artists rated above three stars, the
+    same rule as `PlexUserRating.isFavorite`, through `PlexUserRating.favoriteFilter`
+    (`userRating>>=6`), so Plexamp's loved items are among them. A rating lowered this session
+    drops the item at once (`MacMusicRatings.isFavourite`); a new one shows on the next load.
   - Compilations: albums by Various Artists OR `subformat=Compilation`. `compilation=1` is ignored
     by Plex (it returns every album).
   - Downloaded: `MacMusicCache.keptTracks()` reads rating key and part from the file names, then

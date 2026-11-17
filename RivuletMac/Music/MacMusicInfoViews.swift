@@ -90,6 +90,11 @@ final class MacMusicRatings {
         return PlexUserRating.stars(item.userRating)
     }
 
+    /// Rated above three stars, counting a rating changed this session.
+    func isFavourite(_ item: PlexMetadata) -> Bool {
+        (stars(for: item) ?? 0) > PlexUserRating.favoriteStarThreshold
+    }
+
     /// Shows the new rating at once and puts the old one back if Plex refuses it.
     func set(_ value: Int?, on item: PlexMetadata, plex: MacPlexSession) {
         guard let key = item.ratingKey else { return }
