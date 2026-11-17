@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.77
+
+- Fixed a crash that could happen soon after waking the Mac, when Siri or Shortcuts asked Reprise for its actions before the network was back.
+
 ## 0.76
 
 - Music: Crossfade now listens to the songs it has downloaded, fading on a bar line, skipping silence at the end of one song and the start of the next.
