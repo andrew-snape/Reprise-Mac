@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.80
+
+- Videos start on the audio track Plex has chosen for you (your language, or a pick made in any Plex app), so Dolby Vision titles no longer drop to HDR10 at the start.
+- A file that fails partway through now carries on as a server stream from where it stopped. Away from home, when the server won't send the file itself, Reprise plays its converted stream and says so.
+- If a video's file is gone from the server, Reprise says so, and skips that version when another exists.
+- Settings > Video: Stereo with Subwoofer, for 2.1 speakers on a stereo connection.
+- Show pages include the selected season's extras.
+- Reprise reaches your server on your home network when plex.tv is down, and finds servers that also act as players.
+- Faster reopening of a title you just left, and longer read-ahead on direct play.
 ## 0.79
 
 - Music: Favourites, the songs, albums and artists you've rated four stars or more, here, in Plexamp or anywhere else in Plex.
