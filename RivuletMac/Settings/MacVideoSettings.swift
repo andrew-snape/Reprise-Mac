@@ -14,6 +14,7 @@ struct MacVideoSettings: View {
     @AppStorage("autoSkipCredits") private var skipCredits = false
     @AppStorage("autoSkipAds") private var skipAds = false
     @AppStorage("useIntroDB") private var useIntroDB = false
+    @AppStorage(StereoWithSubwoofer.key) private var stereoWithSubwoofer = false
 
     var body: some View {
         Form {
@@ -35,6 +36,15 @@ struct MacVideoSettings: View {
                 Text("Playback")
             } footer: {
                 Text("With Play Next off, Up Next waits for you at the end of an episode. The skip lengths apply to the player's buttons, the arrow keys, the Playback menu and your keyboard's media keys; Live TV keeps 10 seconds. Subtitle size, colour and font follow System Settings > Accessibility > Captions.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Stereo with Subwoofer", isOn: $stereoWithSubwoofer)
+            } header: {
+                Text("Sound")
+            } footer: {
+                Text("Plays surround soundtracks as stereo with the subwoofer channel mixed into left and right, for 2.1 speakers on a stereo connection. A Plex transcode and some Live TV channels play as they come.")
                     .foregroundStyle(.secondary)
             }
 

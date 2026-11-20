@@ -793,6 +793,13 @@ struct MacVODPlayerView: View {
             VStack(spacing: 0) {
                 topBar
                     .opacity(chromeVisible ? 1 : 0)
+                if let notice = session.notice {
+                    noticeCard(notice)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .padding(.horizontal, 24)
+                        .padding(.top, 8)
+                        .transition(.opacity)
+                }
                 Spacer()
                 // Skip and Up Next stay up with the controls hidden, so they can be clicked at once.
                 HStack(alignment: .bottom) {
@@ -818,6 +825,7 @@ struct MacVODPlayerView: View {
                     .opacity(chromeVisible ? 1 : 0)
             }
             .animation(.easeOut(duration: 0.25), value: controlsVisible)
+            .animation(.easeOut(duration: 0.25), value: session.notice)
         }
         .onContinuousHover { phase in
             switch phase {
@@ -839,6 +847,23 @@ struct MacVODPlayerView: View {
 
     // MARK: Status
 
+    private func noticeCard(_ notice: MacPlayerNotice) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: notice.symbol).font(.title3)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(notice.title).font(.headline)
+                if let detail = notice.detail {
+                    Text(detail).font(.callout).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: 320, alignment: .leading)
+        .padding(14)
+        .foregroundStyle(.white)
+        .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 14))
+        .allowsHitTesting(false)
+    }
+
     @ViewBuilder
     private var status: some View {
         if let reason = session.serverStopReason {
@@ -851,19 +876,22 @@ struct MacVODPlayerView: View {
             .foregroundStyle(.white)
             .padding(24)
             .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 14))
-        } else if case .failed(let message) = player.state {
+        } else if case .failed(let message) = player.state, !session.isFallingBack {
             VStack(spacing: 12) {
                 Image(systemName: "exclamationmark.triangle").font(.largeTitle)
-                Text(message).multilineTextAlignment(.center).frame(maxWidth: 380)
+                Text(session.fileIsMissing
+                     ? "The server can't find this video's file. It may have been moved or deleted."
+                     : message)
+                    .multilineTextAlignment(.center).frame(maxWidth: 380)
                 HStack {
-                    if player.canRetry { Button("Try Again", action: session.retry) }
+                    if player.canRetry, !session.fileIsMissing { Button("Try Again", action: session.retry) }
                     Button("Close", action: close)
                 }
             }
             .foregroundStyle(.white)
             .padding(24)
             .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 14))
-        } else if player.state == .idle || player.state == .loading || player.isBuffering
+        } else if player.state == .idle || player.state == .loading || player.isBuffering || session.isFallingBack
                     || (player.isStarting && player.state == .playing) {
             ProgressView().controlSize(.large).tint(.white)
         }

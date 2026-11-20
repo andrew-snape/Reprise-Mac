@@ -15,6 +15,8 @@ struct MacPlexDetailView: View {
     @State private var seasonKey: String?
     @State private var episodes: [PlexMetadata] = []
     @State private var episodesSeasonKey: String?
+    /// The picked season's own extras, shown after the show's.
+    @State private var seasonExtras: [PlexExtra] = []
     @State private var related: [PlexMetadata] = []
     @State private var error: String?
     @State private var loadedRevision: Int?
@@ -46,6 +48,7 @@ struct MacPlexDetailView: View {
             await load()
         }
         .task(id: seasonKey) { await loadEpisodes() }
+        .task(id: seasonKey) { await loadSeasonExtras() }
     }
 
     @ViewBuilder
@@ -64,7 +67,7 @@ struct MacPlexDetailView: View {
         if !related.isEmpty {
             MacPlexRail(title: "More Like This", items: related) { MacPlexPosterCard(item: $0, width: $1) }
         }
-        MacPlexExtrasRow(item: shown)
+        MacPlexExtrasRow(item: shown, more: seasonExtras)
         MacPlexInformationSection(item: shown).padding(.horizontal, MacTile.margin)
     }
 
@@ -189,6 +192,14 @@ struct MacPlexDetailView: View {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    private func loadSeasonExtras() async {
+        seasonExtras = []
+        guard shown.type == "show", let key = seasonKey,
+              let season = seasons.first(where: { $0.ratingKey == key }) else { return }
+        let loaded = try? await plex.metadata(for: season)
+        if seasonKey == key { seasonExtras = loaded?.allExtras ?? [] }
     }
 }
 
@@ -429,10 +440,14 @@ private struct MacPlexCastRow: View {
 /// Extras and trailers from the full metadata; clicking one plays it.
 private struct MacPlexExtrasRow: View {
     let item: PlexMetadata
+    /// A season's extras on a show page, after the show's own; duplicates dropped.
+    var more: [PlexExtra] = []
     @Environment(\.plexActions) private var actions
 
     private var extras: [PlexMetadata] {
-        item.allExtras
+        let own = item.allExtras
+        let keys = Set(own.compactMap(\.ratingKey))
+        return (own + more.filter { $0.ratingKey.map { !keys.contains($0) } ?? false })
             .sorted { ExtraSubtype.from(subtype: $0.subtype, extraType: $0.extraType)
                 < ExtraSubtype.from(subtype: $1.subtype, extraType: $1.extraType) }
             .compactMap { extra in

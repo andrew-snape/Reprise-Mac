@@ -43,15 +43,18 @@ extension MacPlexSession {
     }
 
     /// Opens the server's play session before the player asks for media: the transcode's,
-    /// or a direct-play one so the dashboard shows its bandwidth (#423).
-    func openPlaySession(_ request: MacPlexPlaybackRequest) async {
+    /// or a direct-play one so the dashboard shows its bandwidth (#423). True when the server
+    /// refuses the file away from home (a remote limit), so only its transcode will play.
+    @discardableResult
+    func openPlaySession(_ request: MacPlexPlaybackRequest) async -> Bool {
         if request.transcodeSessionID != nil {
             await network.startTranscodeDecision(hlsURL: request.url, headers: request.headers)
         } else if let session = request.directPlaySessionID, let key = request.item.ratingKey {
-            await network.openDirectPlaySession(serverURL: request.serverURL, authToken: request.token,
-                                                ratingKey: key, mediaIndex: request.mediaIndex,
-                                                sessionIdentifier: session)
+            return await network.openDirectPlaySession(serverURL: request.serverURL, authToken: request.token,
+                                                       ratingKey: key, mediaIndex: request.mediaIndex,
+                                                       sessionIdentifier: session)
         }
+        return false
     }
 
     /// Sets the part's audio or subtitle stream, which a new transcode session reads.

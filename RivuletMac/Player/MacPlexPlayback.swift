@@ -46,7 +46,15 @@ final class MacPlexPlayback {
     private var pendingEngineAudio: Int?
     private var pendingEngineSubtitle: Int?
     private var hasPlayed = false
+    /// One switch of route per item: the file to a transcode, or a quality transcode to the file.
     private var didFallBack = false
+    /// A fallback reload is under way: the failure that started it is not shown over it.
+    private(set) var isFallingBack = false
+    /// A passing note over the player, such as why a transcode plays instead of the file.
+    private(set) var notice: MacPlayerNotice?
+    private var noticeTask: Task<Void, Never>?
+    /// The last position the stream played at, which a failure may have zeroed on the engine.
+    private var lastPlayhead: TimeInterval = 0
     private var observationTasks: [Task<Void, Never>] = []
 
     init(request: MacPlexPlaybackRequest, plex: MacPlexSession) {
@@ -70,6 +78,7 @@ final class MacPlexPlayback {
         longStallTask?.cancel()
         observationTasks.forEach { $0.cancel() }
         pausedTimelineTask?.cancel()
+        noticeTask?.cancel()
         let finish = finishItem(at: player.currentTime)
         let plex = plex
         let request = request
@@ -94,14 +103,31 @@ final class MacPlexPlayback {
         // opens on its default tracks, so picks made on a transcode carry back.
         pendingEngineAudio = isTranscoding ? nil : chosenAudioID
         pendingEngineSubtitle = isTranscoding ? selectedSubtitleID : chosenSubtitleID
-        await plex.openPlaySession(request)
+        // Away from home the server may refuse the file (a remote limit): its transcode plays instead.
+        if await plex.openPlaySession(request), let step = fallBackToTranscode() {
+            show(MacPlayerNotice(
+                title: "Server Is Converting",
+                detail: "The server won't play this file directly. It's sending \(step.label.replacingOccurrences(of: " ", with: "\u{00A0}")).",
+                symbol: "server.rack"))
+            return
+        }
         try? await player.load(
             url: request.url,
             headers: request.headers,
             startTime: request.startTime,
             externalSubtitles: request.sidecarSubtitles,
+            audioStreamIndex: openingAudioStreamIndex,
             keepingTransport: keepingTransport
         )
+    }
+
+    /// The container stream a direct-play file opens on: the pick carried in, else Plex's
+    /// selected audio (the account's language, or a pick made in any Plex app). Switching once
+    /// the engine lists its tracks would rebuild the load and serve Dolby Vision as HDR10.
+    private var openingAudioStreamIndex: Int? {
+        guard !isTranscoding else { return nil }
+        guard let id = chosenAudioID ?? request.selectedPlexStreamID(streamType: 2) else { return nil }
+        return plexStreams.first { $0.isAudio && $0.id == id }?.index
     }
 
     func retry() {
@@ -136,9 +162,11 @@ final class MacPlexPlayback {
         quality: StreamingQuality,
         plan: StreamPlan? = nil,
         at time: TimeInterval? = nil,
-        streams: (audio: Int?, subtitle: Int?)? = nil
+        streams: (audio: Int?, subtitle: Int?)? = nil,
+        isFallback: Bool = false
     ) {
         reloadTask?.cancel()
+        isFallingBack = isFallback
         longStallTask?.cancel()
         let previous = request
         let time = time ?? player.pendingSeekTarget ?? player.currentTime
@@ -146,6 +174,7 @@ final class MacPlexPlayback {
         // A file that never listed its tracks (a failed start) has no picks to carry.
         let picks = streams ?? (previous.plan == .original && !player.audioTracks.isEmpty ? enginePicksAsPlexIDs() : nil)
         reloadTask = Task { [weak self] in
+            defer { if isFallback, !Task.isCancelled { self?.isFallingBack = false } }
             guard let next = try? await plex.playback(reloading: previous, quality: quality, plan: plan, at: time),
                   let self, !Task.isCancelled else { return }
             // Same plan from a menu change: only the choice moves.
@@ -189,21 +218,50 @@ final class MacPlexPlayback {
     }
 
     private func stepDown() {
-        guard let step = QualityDecision.stepDown(from: request.plan, sourceKbps: request.sourceKbps) else { return }
+        // The file took over from a failed transcode: stepping down would only fail again.
+        guard !(didFallBack && request.plan == .original),
+              let step = QualityDecision.stepDown(from: request.plan, sourceKbps: request.sourceKbps) else { return }
         stallTracker.noteStepDown()
         print("[Quality] Stalling, stepping down to \(step.label)")
         reload(quality: .auto, plan: .transcode(step))
     }
 
-    /// A direct-play file that never starts gets one retry as a transcode, as on tvOS.
-    private func fallBackToTranscode() {
-        guard !hasPlayed, !didFallBack, request.plan == .original else { return }
+    /// The server lists the playing version but its file is gone (`checkFiles`): nothing will play it.
+    var fileIsMissing: Bool { request.item.Media?.first?.isMissing == true }
+
+    /// Where a failed stream resumes: the last playhead it reached, or the start it never left.
+    private var resumeAfterFailure: TimeInterval {
+        hasPlayed ? lastPlayhead : request.startTime ?? 0
+    }
+
+    /// The file failing, at start or mid-play, or refused, gets one retry as a transcode at the
+    /// quality setting's step (Original takes the top step).
+    @discardableResult
+    private func fallBackToTranscode() -> QualityStep? {
+        guard request.plan == .original, !didFallBack, !fileIsMissing else { return nil }
         didFallBack = true
-        let kbps = request.quality == .auto
-            ? QualityDecision.capKbps(setting: .auto, measuredKbps: request.measuredKbps, isRelay: false) ?? 8000
-            : 8000
-        reload(quality: request.quality, plan: .transcode(QualityDecision.highestStep(atMost: kbps)),
-               at: request.startTime ?? 0)
+        let step = QualityDecision.fallbackStep(setting: request.quality, measuredKbps: request.measuredKbps)
+        reload(quality: request.quality, plan: .transcode(step), at: resumeAfterFailure, isFallback: true)
+        return step
+    }
+
+    /// A transcode chosen by quality (Auto's step, a set step) failing, at start or mid-play, gives
+    /// way to the file at the playhead, and Auto steps down no more for this item. A relay has no file route.
+    private func fallBackToOriginal() {
+        guard request.plan.step != nil, !didFallBack, !fileIsMissing,
+              !PlexRelay.isRelayURL(request.serverURL) else { return }
+        didFallBack = true
+        reload(quality: request.quality, plan: .original, at: resumeAfterFailure, isFallback: true)
+    }
+
+    private func show(_ notice: MacPlayerNotice) {
+        self.notice = notice
+        noticeTask?.cancel()
+        noticeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled else { return }
+            self?.notice = nil
+        }
     }
 
     // MARK: - Tracks
@@ -264,7 +322,8 @@ final class MacPlexPlayback {
         if let id = pendingEngineAudio, let index = streams.first(where: { $0.id == id })?.index,
            player.audioTracks.contains(where: { $0.id == index }) {
             pendingEngineAudio = nil
-            player.selectAudioTrack(id: index)
+            // Usually already opened on it (`openingAudioStreamIndex`); a switch rebuilds the session.
+            if player.currentAudioTrackId != index { player.selectAudioTrack(id: index) }
         }
         guard let id = pendingEngineSubtitle, !player.subtitleTracks.isEmpty else { return }
         guard id != 0, let stream = streams.first(where: { $0.id == id }) else {
@@ -345,7 +404,7 @@ final class MacPlexPlayback {
             finishItem(at: max(player.duration, player.currentTime))
             startUpNextCountdown()
         case .failed:
-            fallBackToTranscode()
+            if fallBackToTranscode() == nil { fallBackToOriginal() }
         default:
             break
         }
@@ -355,6 +414,7 @@ final class MacPlexPlayback {
         // A load's clock reads 0 until it starts; an intro at 0 must not fire mid-reload.
         if !player.isStarting { evaluateAutoSkip(at: time) }
         guard player.state == .playing else { return }
+        if time > 0, !player.isStarting { lastPlayhead = time }
         let bucket = Int(time) / 10
         if bucket != lastReportBucket {
             lastReportBucket = bucket
@@ -500,6 +560,8 @@ final class MacPlexPlayback {
             chosenAudioID = nil
             chosenSubtitleID = nil
             didFallBack = false
+            lastPlayhead = 0
+            notice = nil
             stallTracker = StallTracker()
             nextEpisode = nil
             upNextDismissed = false
@@ -510,4 +572,11 @@ final class MacPlexPlayback {
             await load()
         }
     }
+}
+
+/// A passing note over the player: a title, a line of detail and an SF Symbol.
+struct MacPlayerNotice: Equatable {
+    let title: String
+    var detail: String?
+    var symbol = "info.circle"
 }

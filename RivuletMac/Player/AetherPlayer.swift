@@ -423,6 +423,12 @@ final class AetherPlayer {
 
     // MARK: - Loading
 
+    /// Stereo with Subwoofer: a stereo fold that keeps the LFE, for 2.1 speakers. Only where the
+    /// engine owns the audio; AVPlayer plays a transcode or a native HLS channel as it comes.
+    static func audioShaping() -> AudioShaping {
+        StereoWithSubwoofer.isOn() ? AudioShaping(maxChannels: 2, lfeMixDB: StereoWithSubwoofer.lfeMixDB) : AudioShaping()
+    }
+
     /// HLS goes to AVPlayer natively; everything else (raw MPEG-TS) through
     /// the engine's demux. `forceEngineDemux` is for Plex `/livetv/sessions/`
     /// grants, whose broadcast mp2 and teletext AVPlayer cannot decode.
@@ -439,7 +445,7 @@ final class AetherPlayer {
         sourceReachesReceiver = isNativeHLS
 
         func makeOptions(nativeRemoteHLS: Bool) -> LoadOptions {
-            LoadOptions(
+            var options = LoadOptions(
                 suppressDisplayCriteria: false,
                 httpHeaders: headers,
                 matchContentEnabled: true,
@@ -459,6 +465,8 @@ final class AetherPlayer {
                 // engine's own SPS check catches mis-signalled H.264 (#150).
                 preferredDecodePath: (!nativeRemoteHLS && Self.needsDeinterlacing(url)) ? .software : .automatic
             )
+            options.audioShaping = Self.audioShaping()
+            return options
         }
 
         do {
@@ -493,12 +501,13 @@ final class AetherPlayer {
         headers: [String: String]? = nil,
         startTime: TimeInterval? = nil,
         externalSubtitles: [SidecarSubtitle] = [],
+        audioStreamIndex: Int? = nil,
         keepingTransport: Bool = false
     ) async throws {
         lastLoad = .vod(url: url, headers: headers ?? [:], subtitles: externalSubtitles)
         try await performVODLoad(
             url: url, headers: headers ?? [:], startTime: startTime, subtitles: externalSubtitles,
-            keepingTransport: keepingTransport
+            audioStreamIndex: audioStreamIndex, keepingTransport: keepingTransport
         )
     }
 
@@ -507,6 +516,7 @@ final class AetherPlayer {
         headers: [String: String],
         startTime: TimeInterval?,
         subtitles: [SidecarSubtitle],
+        audioStreamIndex: Int? = nil,
         keepingTransport: Bool = false
     ) async throws {
         beginLoad(keepingTransport: keepingTransport)
@@ -543,9 +553,17 @@ final class AetherPlayer {
             teletextPage: Self.regionTeletextPage()
         )
         options.autoplay = userIntendsToPlay
+        options.audioShaping = Self.audioShaping()
+        // Read ahead as far as the engine's disk budget allows.
+        options.forwardBufferSegments = .max
+        // Reopening the same file within the session plays from the segments already fetched.
+        options.retainsSessionCacheAfterStop = true
 
         do {
-            try await engine.load(url: url, startPosition: startTime, options: options)
+            // Opens on the host's audio pick: switching once the engine lists its tracks rebuilds
+            // the load before its display handshake ends, serving Dolby Vision as its HDR10 base.
+            try await engine.load(url: url, startPosition: startTime, options: options,
+                                  audioSourceStreamIndex: audioStreamIndex.flatMap { Int32(exactly: $0) })
             engine.volume = isMuted ? 0 : volume
             if userIntendsToPlay, rate != 1 { engine.setRate(rate) }
             seedVideoSize()
@@ -562,7 +580,8 @@ final class AetherPlayer {
         switch lastLoad {
         case .vod(let url, let headers, let subtitles):
             try? await performVODLoad(url: url, headers: headers, startTime: position > 1 ? position : nil,
-                                      subtitles: subtitles)
+                                      subtitles: subtitles,
+                                      audioStreamIndex: Self.isHLSURL(url) ? nil : currentAudioTrackId)
         case .live(let url, let headers, let forceEngineDemux):
             try? await performLiveLoad(url: url, headers: headers, forceEngineDemux: forceEngineDemux)
         }

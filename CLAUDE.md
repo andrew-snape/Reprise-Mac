@@ -87,6 +87,11 @@ from the app, the app injects it at launch, before touching the stores:
 `LiveTVDataStore.foregroundNotification` (AppKit's did-become-active).
 `CaptionStyle` holds `CGColor`s and a font descriptor; the app builds the font.
 
+**Reprise Terminal** (`andrew-snape/Reprise-Terminal`, locally `~/Developer/Reprise-Terminal`)
+vendors an unedited copy of `RivuletCore/` and builds it with the same Swift settings.
+Changes here reach it by rsync, so keep RivuletCore free of AppKit/SwiftUI and keep it
+compiling as a plain SwiftPM target.
+
 ## Rules that look wrong until you know them
 
 - **AetherPlayer is the only file allowed to name an AetherEngine type.** Map
@@ -124,9 +129,17 @@ from the app, the app injects it at launch, before touching the stores:
   `http://` address onto one. A server with no working TLS address still uses HTTP.
 - **Routing (VOD)**: `MacPlexSession.stream` picks Original (direct play through
   Aether) or a capped Plex transcode from the Home or Away quality setting and,
-  for Auto, a throughput probe. A direct-play file that never starts gets one
-  retry as a transcode; Auto steps down after repeated stalls (`StallTracker`).
+  for Auto, a throughput probe. One route switch per item: a direct-play file that
+  fails (at start or mid-play) or that the server refuses away from home (the
+  direct-play decision's `generalDecisionCode` ≠ 1000; a LAN refusal is ignored) plays
+  as a transcode at `QualityDecision.fallbackStep` (Original takes the top step), with a
+  notice; a quality transcode that fails plays the file instead. A version whose file
+  is gone (`checkFiles=1`, `PlexMedia.isMissing`) is never picked while another exists,
+  and no fallback is tried for it. Auto steps down after repeated stalls (`StallTracker`).
   A relay connection is always a capped transcode.
+- **Direct play opens on Plex's selected audio** (`audioSourceStreamIndex`, the stream's
+  container `index`): switching after the engine lists its tracks rebuilds the session
+  and serves Dolby Vision as its HDR10 base.
 - **Live TV**: HLS goes to AVPlayer natively; raw MPEG-TS through the engine's
   demux. A Plex `/livetv/sessions/` grant loads with `forceEngineDemux`, since
   AVPlayer cannot decode broadcast mp2 or teletext. `MacLivePlayback` waits
@@ -370,9 +383,9 @@ grep its key: a single hit means it is dead. Keys read today:
 `skipForwardSeconds`, `radioLayout`, `radioSort`, `musicOnlineInfo`, `sidebarOrder`,
 `sidebarHidden`, `settingsPane` (the selected Settings pane), `macChannelSort`,
 `macLiveTVLayout`, `macLiveTVShowsList`, `musicOutputSampleRate`, `musicCacheLimitMB`,
-`musicPrecacheCount`, `musicCrossfadeSeconds`, `musicAirPlayFromPlayer`, `musicQueuePosition` (not a control: where the
+`musicPrecacheCount`, `musicCrossfadeSeconds`, `musicAirPlayFromPlayer`, `stereoWithSubwoofer`, `musicQueuePosition` (not a control: where the
 saved queue resumes). Some are reached through a constant
-(`MusicInfoStore.enabledKey`, `MacSettingsPane.storageKey`, `MacMusicCache.limitKey`, `MacMusicPlayback.crossfadeKey`, `MacAirPlayRoute.fromPlayerKey`, `MacMusicQueueStore.positionKey`), so grep both. Sparkle keeps
+(`StereoWithSubwoofer.key`, `MusicInfoStore.enabledKey`, `MacSettingsPane.storageKey`, `MacMusicCache.limitKey`, `MacMusicPlayback.crossfadeKey`, `MacAirPlayRoute.fromPlayerKey`, `MacMusicQueueStore.positionKey`), so grep both. Sparkle keeps
 its own (Settings > General).
 
 Settings is a sidebar of panes (`MacSettingsPane`, iPad-style icon tiles in system
