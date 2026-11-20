@@ -191,7 +191,7 @@ class PlexAuthManager: ObservableObject {
         } == true
         let wantsTLS = Self.prefersSecureLocalConnections && url.hasPrefix("http://")
         if !wantsTLS, Self.isPlayableDirectURL(url),
-           savedIsLocal || server.connections?.contains { $0.local } != true { return }
+           savedIsLocal || server.connections?.contains(where: { $0.local }) != true { return }
         guard let best = await findBestConnection(for: server, reuseLastGood: false),
               Self.isPlayableDirectURL(best),
               best != url,
