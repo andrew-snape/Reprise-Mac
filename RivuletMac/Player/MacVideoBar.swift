@@ -73,8 +73,7 @@ struct MacVideoBar: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
-        .background(.bar)
-        .overlay(alignment: .top) { Divider() }
+        .macFloatingBar()
         .contextMenu {
             Button("Expand Player", systemImage: "arrow.up.left.and.arrow.down.right", action: controller.expand)
             Button("Stop", systemImage: "stop.fill") { controller.close() }

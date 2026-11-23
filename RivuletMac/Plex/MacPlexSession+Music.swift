@@ -37,7 +37,22 @@ nonisolated enum MacMusicKind: String, CaseIterable, Identifiable {
     case artists, albums, compilations, tracks, favourites, playlists, downloaded, history
 
     var id: String { rawValue }
-    var title: String { rawValue.capitalized }
+    var title: String { self == .tracks ? "Songs" : rawValue.capitalized }
+    /// The sidebar row's symbol.
+    var icon: String {
+        switch self {
+        case .artists: "music.mic"
+        case .albums, .compilations: "square.stack"
+        case .tracks: "music.note"
+        case .favourites: "star"
+        case .playlists: "music.note.list"
+        case .downloaded: "arrow.down.circle"
+        case .history: "clock"
+        }
+    }
+    /// The music library's own sidebar rows, as Apple Music lists its library. Compilations
+    /// sit on the Albums page and playlists in their own sidebar section.
+    static let sidebarPages: [MacMusicKind] = [.artists, .albums, .tracks, .favourites, .downloaded, .history]
     /// Plex's metadata type number for `/all?type=`.
     var plexType: Int? {
         switch self {

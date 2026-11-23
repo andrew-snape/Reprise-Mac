@@ -167,12 +167,14 @@ struct MacMusicTileLink: View {
 /// A music library: mixes, Plex's own rows and On This Day, then artists,
 /// albums, compilations, songs, favourites, playlists, downloads and history. The top of the
 /// page takes on the colours of what is playing.
+/// A music library: its shelves (Home, `page` nil) or one list from the sidebar.
 struct MacMusicLibraryView: View {
     let library: PlexLibrary
+    var page: MacMusicKind?
     @Environment(MacPlexSession.self) private var plex
     @Environment(MacMusicPlayback.self) private var music
     @AppStorage private var sortRaw: String
-    @State private var kind: MacMusicKind = .artists
+    @State private var kind: MacMusicKind
     @State private var hubs: [PlexHub] = []
     @State private var mixes: [MacMusicMix] = []
     @State private var onThisDay: [PlexMetadata] = []
@@ -183,11 +185,14 @@ struct MacMusicLibraryView: View {
     @State private var isLoading = false
     @State private var error: String?
     @State private var loadedKey: String?
+    @State private var homeLoaded = false
 
     private static let pageSize = 120
 
-    init(library: PlexLibrary) {
+    init(library: PlexLibrary, page: MacMusicKind? = nil) {
         self.library = library
+        self.page = page
+        _kind = State(initialValue: page ?? .artists)
         _sortRaw = AppStorage(wrappedValue: LibrarySortOption.titleAsc.rawValue, "macLibrarySort.\(library.key)")
     }
 
@@ -209,68 +214,7 @@ struct MacMusicLibraryView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 28) {
-                let recents = MacMusicRecents.shared.items
-                if !mixes.isEmpty {
-                    MacShelfRow(items: mixes, base: MacMusicMixTile.width) {
-                        Text("Mixes for You").font(.title2.bold())
-                    } tile: { mix, width in
-                        MacMusicMixTile(mix: mix, sectionKey: library.key, width: width)
-                    }
-                }
-                if !recents.isEmpty {
-                    MacShelfRow(items: recents) {
-                        Text("Recently Played").font(.title2.bold())
-                    } tile: { item, width in
-                        MacMusicTileLink(item: item, width: width)
-                    }
-                }
-                ForEach(recents.isEmpty ? hubs : hubs.filter { !$0.isRecentlyPlayed }) { hub in
-                    MacShelfRow(items: hub.items) {
-                        Text(hub.displayTitle).font(.title2.bold())
-                    } tile: { item, width in
-                        MacMusicTileLink(item: item, width: width)
-                    }
-                }
-                if !onThisDay.isEmpty {
-                    MacShelfRow(items: onThisDay) {
-                        Text("On This Day").font(.title2.bold())
-                    } tile: { item, width in
-                        MacMusicTileLink(item: item, width: width)
-                    }
-                }
-                // Segments while they fit; a narrow window gets a menu instead.
-                ViewThatFits(in: .horizontal) {
-                    kindPicker.pickerStyle(.segmented).fixedSize()
-                    kindPicker.pickerStyle(.menu).fixedSize()
-                }
-                .labelsHidden()
-                .padding(.horizontal, MacTile.margin)
-
-                if items.isEmpty, let error {
-                    MacPlexErrorView(title: "Couldn't Load Library", message: error) { await reload() }
-                        .frame(maxWidth: .infinity)
-                } else if kind == .history {
-                    MacMusicHistoryList(library: library)
-                } else if items.isEmpty, favouriteArtists.isEmpty, favouriteAlbums.isEmpty, !isLoading, loadedKey != nil {
-                    if kind == .downloaded {
-                        ContentUnavailableView("No Downloaded Songs", systemImage: "arrow.down.circle",
-                                               description: Text("Songs you play are kept on this Mac as Settings > Music allows."))
-                            .frame(maxWidth: .infinity)
-                    } else if kind == .favourites {
-                        ContentUnavailableView("No Favourites", systemImage: "star",
-                                               description: Text("Songs, albums and artists rated four stars or more, here or in Plexamp, gather here."))
-                            .frame(maxWidth: .infinity)
-                    } else {
-                        ContentUnavailableView("Nothing Here", systemImage: library.icon)
-                            .frame(maxWidth: .infinity)
-                    }
-                } else if kind.isTracks {
-                    if kind == .favourites { favouriteShelves }
-                    trackRows
-                } else {
-                    MacMusicGrid(items: items, loadMore: loadMore)
-                }
-                if isLoading { ProgressView().frame(maxWidth: .infinity).padding() }
+                if page == nil { shelves } else { list }
             }
             .padding(.vertical, 20)
         }
@@ -279,14 +223,15 @@ struct MacMusicLibraryView: View {
                 .frame(height: 520)
                 .opacity(0.55)
         }
-        .navigationTitle(library.title)
+        .navigationTitle(page?.title ?? library.title)
+        .navigationSubtitle(page == nil ? "" : library.title)
         .toolbar {
             ToolbarItemGroup {
                 Button("Library Radio", systemImage: "dot.radiowaves.left.and.right") {
                     music.startLibraryRadio(library)
                 }
                 .help("Shuffle the whole library, without end")
-                if kind.isPaged {
+                if page != nil, kind.isPaged {
                     Picker("Sort By", selection: $sortRaw) {
                         ForEach(sorts, id: \.0) { Text($0.1).tag($0.0.rawValue) }
                     }
@@ -295,16 +240,100 @@ struct MacMusicLibraryView: View {
                 }
             }
         }
-        .task(id: "\(library.key)|\(plex.sessionGeneration)") {
+        .task(id: "\(library.key)|\(plex.sessionGeneration)|\(page == nil)") {
+            guard page == nil else { return }
             hubs = (try? await plex.musicHubs(library)) ?? []
             async let day = plex.onThisDay(library)
             async let made = plex.mixesForYou(library, recentlyPlayed: recentArtists)
             (onThisDay, mixes) = await (day, made)
+            homeLoaded = true
         }
         .task(id: queryKey) {
-            guard loadedKey != queryKey else { return }
+            guard page != nil, loadedKey != queryKey else { return }
             await reload()
         }
+    }
+
+    /// Home: mixes, what was played, Plex's rows and On This Day.
+    @ViewBuilder private var shelves: some View {
+        let recents = MacMusicRecents.shared.items
+        if !mixes.isEmpty {
+            MacShelfRow(items: mixes, base: MacMusicMixTile.width) {
+                Text("Mixes for You").font(.title2.bold())
+            } tile: { mix, width in
+                MacMusicMixTile(mix: mix, sectionKey: library.key, width: width)
+            }
+        }
+        if !recents.isEmpty {
+            MacShelfRow(items: recents) {
+                Text("Recently Played").font(.title2.bold())
+            } tile: { item, width in
+                MacMusicTileLink(item: item, width: width)
+            }
+        }
+        ForEach(recents.isEmpty ? hubs : hubs.filter { !$0.isRecentlyPlayed }) { hub in
+            MacShelfRow(items: hub.items) {
+                Text(hub.displayTitle).font(.title2.bold())
+            } tile: { item, width in
+                MacMusicTileLink(item: item, width: width)
+            }
+        }
+        if !onThisDay.isEmpty {
+            MacShelfRow(items: onThisDay) {
+                Text("On This Day").font(.title2.bold())
+            } tile: { item, width in
+                MacMusicTileLink(item: item, width: width)
+            }
+        }
+        if mixes.isEmpty, recents.isEmpty, hubs.isEmpty, onThisDay.isEmpty {
+            if homeLoaded {
+                ContentUnavailableView("Nothing Here Yet", systemImage: library.icon,
+                                       description: Text("Artists, Albums and Songs are in the sidebar."))
+                    .frame(maxWidth: .infinity)
+            } else {
+                ProgressView().frame(maxWidth: .infinity).padding(.top, 80)
+            }
+        }
+    }
+
+    /// One of the sidebar's lists. Albums can switch to compilations.
+    @ViewBuilder private var list: some View {
+        if page == .albums {
+            Picker("Show", selection: $kind) {
+                Text("All Albums").tag(MacMusicKind.albums)
+                Text("Compilations").tag(MacMusicKind.compilations)
+            }
+            .pickerStyle(.segmented)
+            .fixedSize()
+            .labelsHidden()
+            .padding(.horizontal, MacTile.margin)
+        }
+
+        if items.isEmpty, let error {
+            MacPlexErrorView(title: "Couldn't Load Library", message: error) { await reload() }
+                .frame(maxWidth: .infinity)
+        } else if kind == .history {
+            MacMusicHistoryList(library: library)
+        } else if items.isEmpty, favouriteArtists.isEmpty, favouriteAlbums.isEmpty, !isLoading, loadedKey != nil {
+            if kind == .downloaded {
+                ContentUnavailableView("No Downloaded Songs", systemImage: "arrow.down.circle",
+                                       description: Text("Songs you play are kept on this Mac as Settings > Music allows."))
+                    .frame(maxWidth: .infinity)
+            } else if kind == .favourites {
+                ContentUnavailableView("No Favourites", systemImage: "star",
+                                       description: Text("Songs, albums and artists rated four stars or more, here or in Plexamp, gather here."))
+                    .frame(maxWidth: .infinity)
+            } else {
+                ContentUnavailableView("Nothing Here", systemImage: library.icon)
+                    .frame(maxWidth: .infinity)
+            }
+        } else if kind.isTracks {
+            if kind == .favourites { favouriteShelves }
+            trackRows
+        } else {
+            MacMusicGrid(items: items, loadMore: loadMore)
+        }
+        if isLoading { ProgressView().frame(maxWidth: .infinity).padding() }
     }
 
     private func reload() async {
@@ -360,12 +389,6 @@ struct MacMusicLibraryView: View {
                   key == queryKey else { return }
             items = (items + page.items).uniqued()
             self.total = page.items.isEmpty ? items.count : page.totalSize
-        }
-    }
-
-    private var kindPicker: some View {
-        Picker("Show", selection: $kind) {
-            ForEach(MacMusicKind.allCases) { Text($0.title).tag($0) }
         }
     }
 

@@ -6,14 +6,18 @@ import SwiftUI
 
 // MARK: - Bar
 
-/// The player along the bottom of the window while music is queued, in one
-/// row: the cover flush to the edge, title, artist and album, the transport,
+/// The player floating over the bottom of the page while music is queued, as
+/// Apple Music's, in one row: the cover flush to the capsule's edge, title, artist and album, the transport,
 /// the waveform, Favourite and Dislike, and volume. The cover and title open Now
 /// Playing; the artist and album go to their pages. A narrow window drops the
 /// volume slider.
 struct MacMusicBar: View {
     /// The bottom bar's height, shared by the radio bar so switching never jumps.
     static let height: CGFloat = 70
+    /// How far the bar and its margins reach up from the bottom of the page, which
+    /// every scroll view keeps clear so its last row can scroll out from under the bar.
+    static let reservedHeight: CGFloat = height + 2 * floatingMargin
+    static let floatingMargin: CGFloat = 12
 
     @Environment(MacMusicPlayback.self) private var music
     @Environment(\.plexActions) private var actions
@@ -66,14 +70,9 @@ struct MacMusicBar: View {
             }
             .padding(.trailing, 14)
             .frame(height: Self.height)
-            .background {
-                // A faint wash of the cover's colours over the bar material.
-                ZStack {
-                    Rectangle().fill(.bar)
-                    MacMusicWash(item: track).opacity(0.22)
-                }
-            }
-            .overlay(alignment: .top) { Divider() }
+            // A faint wash of the cover's colours in the glass.
+            .background { MacMusicWash(item: track).opacity(0.22) }
+            .macFloatingBar()
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             .contextMenu { menu(for: track) }
         }
@@ -124,6 +123,22 @@ struct MacMusicBar: View {
             }
         }
         Button("Stop", systemImage: "stop.fill") { music.stop() }
+    }
+}
+
+// MARK: - Floating
+
+extension View {
+    /// A bottom bar as a floating glass capsule, as Apple Music's player.
+    func macFloatingBar() -> some View {
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        return self
+            // Glass alone lets the page's artwork show through the titles; the bar
+            // material under it keeps them legible, as Apple Music's player is.
+            .background(.bar)
+            .clipShape(shape)
+            .glassEffect(.regular, in: shape)
+            .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
     }
 }
 

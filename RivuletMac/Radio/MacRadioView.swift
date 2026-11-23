@@ -460,8 +460,7 @@ struct MacRadioBar: View {
             }
             .padding(.trailing, 14)
             .frame(height: MacMusicBar.height)
-            .background(.bar)
-            .overlay(alignment: .top) { Divider() }
+            .macFloatingBar()
         }
     }
 

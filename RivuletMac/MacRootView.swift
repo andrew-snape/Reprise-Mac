@@ -6,9 +6,16 @@ import SwiftUI
 
 /// What the sidebar opens.
 enum MacSection: Hashable {
+    var isPlaylist: Bool { if case .playlist = self { true } else { false } }
+
     case home
     case search
+    /// A library; a music library's Home (its shelves).
     case library(String)
+    /// One of a music library's own lists (Artists, Albums, Songs, ...).
+    case musicPage(String, MacMusicKind)
+    /// A music playlist, by rating key.
+    case playlist(String)
     case liveTV
     case radio
 }
@@ -37,31 +44,32 @@ struct MacRootView: View {
     @State private var showingSignIn = false
     @State private var accountHovering = false
     @State private var whatsNew: MacWhatsNew.Notice?
+    /// Listed by name under Playlists, as in Apple Music.
+    @State private var playlists: [PlexMetadata] = []
 
     var body: some View {
         ZStack {
             ZStack {
-                // One bar along the bottom: a minimized Plex title, else the station while
-                // one is loaded (music stays paused under either), else music. Below the split view, not a safe
-                // area inset on it: the inset never reached the detail column's scroll
-                // views, so the last row sat under the bar.
-                VStack(spacing: 0) {
-                    NavigationSplitView(columnVisibility: $columns) {
-                        sidebar
-                    } detail: {
-                        detail
-                    }
-                    // On the split view, so the field sits in the window toolbar for every page,
-                    // not only inside the detail column's stack.
-                    .searchable(text: $searchQuery, placement: .toolbar, prompt: searchPrompt)
-                    if playback.isMinimized, let session = playback.session {
-                        MacVideoBar(session: session, player: session.player)
-                    } else if radio.station != nil {
-                        MacRadioBar()
-                    } else {
-                        MacMusicBar()
-                    }
+                NavigationSplitView(columnVisibility: $columns) {
+                    sidebar
+                } detail: {
+                    detail
+                        // One bar floats over the bottom of the page, as Apple Music's player: a
+                        // minimized Plex title, else the station while one is loaded (music stays
+                        // paused under either), else music. An overlay on the detail column, so it
+                        // covers pushed pages too, but not the sidebar.
+                        .overlay(alignment: .bottom) {
+                            bottomBar
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, MacMusicBar.floatingMargin)
+                        }
                 }
+                // Scroll views keep their last row clear of the bar. Environment on the split
+                // view, not the detail stack: pushed pages miss environment set inside it.
+                .contentMargins(.bottom, hasBottomBar ? MacMusicBar.reservedHeight : 0, for: .scrollContent)
+                // On the split view, so the field sits in the window toolbar for every page,
+                // not only inside the detail column's stack.
+                .searchable(text: $searchQuery, placement: .toolbar, prompt: searchPrompt)
                 if music.isNowPlayingShown {
                     MacMusicNowPlayingView()
                         .transition(.move(edge: .bottom))
@@ -145,13 +153,15 @@ struct MacRootView: View {
         // Hiding the row that is open moves to the first one left.
         .onChange(of: sidebarHidden) {
             let hiddenIDs = MacSidebarLayout.ids(sidebarHidden)
+            let musicKeys = Set(plex.libraries.filter(\.isMusicLibrary).map { MacSection.library($0.key) })
             let visible = MacSidebarLayout.plexItems(libraries: plex.libraries, order: sidebarOrder)
                 .filter { !hiddenIDs.contains($0.id) }
                 .map(\.section)
             let liveVisible = !hiddenIDs.contains(MacSidebarLayout.liveTVID)
             let radioVisible = !hiddenIDs.contains(MacSidebarLayout.radioID)
             let stillShown = section.map {
-                visible.contains($0) || ($0 == .liveTV && liveVisible) || ($0 == .radio && radioVisible)
+                visible.contains(Self.owner(of: $0)) || ($0 == .liveTV && liveVisible) || ($0 == .radio && radioVisible)
+                    || ($0.isPlaylist && visible.contains { musicKeys.contains($0) })
             } ?? false
             if !stillShown {
                 section = visible.first ?? (liveVisible ? .liveTV : radioVisible ? .radio : .home)
@@ -205,6 +215,30 @@ struct MacRootView: View {
         .sheet(isPresented: $showingSignIn) { MacPlexSignInSheet() }
         .sheet(item: $whatsNew) { MacWhatsNewSheet(notice: $0) }
         .task { whatsNew = MacWhatsNew.pending() }
+        .task(id: "\(plex.sessionGeneration)|\(plex.libraries.contains(where: \.isMusicLibrary))") {
+            playlists = plex.libraries.contains(where: \.isMusicLibrary) ? ((try? await plex.audioPlaylists()) ?? []).uniqued() : []
+        }
+    }
+
+    /// The sidebar row a section belongs to: a music page belongs to its library.
+    private static func owner(of section: MacSection) -> MacSection {
+        if case .musicPage(let key, _) = section { return .library(key) }
+        return section
+    }
+
+    private var hasBottomBar: Bool {
+        (playback.isMinimized && playback.session != nil) || radio.station != nil || music.track != nil
+    }
+
+    @ViewBuilder
+    private var bottomBar: some View {
+        if playback.isMinimized, let session = playback.session {
+            MacVideoBar(session: session, player: session.player)
+        } else if radio.station != nil {
+            MacRadioBar()
+        } else {
+            MacMusicBar()
+        }
     }
 
     // MARK: - Sidebar
@@ -214,10 +248,34 @@ struct MacRootView: View {
             let hiddenIDs = MacSidebarLayout.ids(sidebarHidden)
             let items = MacSidebarLayout.plexItems(libraries: plex.libraries, order: sidebarOrder)
                 .filter { !hiddenIDs.contains($0.id) }
-            if !items.isEmpty {
+            let musicKeys = Set(plex.libraries.filter(\.isMusicLibrary).map { MacSection.library($0.key) })
+            let plexRows = items.filter { !musicKeys.contains($0.section) }
+            let musicRows = items.filter { musicKeys.contains($0.section) }
+            if !plexRows.isEmpty {
                 Section("Plex") {
-                    ForEach(items) { item in
+                    ForEach(plexRows) { item in
                         Label(item.title, systemImage: item.icon).tag(item.section)
+                    }
+                }
+            }
+            // Each music library lists its pages as Apple Music does, then the playlists.
+            ForEach(musicRows) { item in
+                if case .library(let key) = item.section {
+                    Section(item.title) {
+                        Label("Home", systemImage: "house").tag(item.section)
+                        ForEach(MacMusicKind.sidebarPages) { page in
+                            Label(page.title, systemImage: page.icon).tag(MacSection.musicPage(key, page))
+                        }
+                    }
+                }
+            }
+            if !musicRows.isEmpty, case .library(let key)? = musicRows.first?.section {
+                Section("Playlists") {
+                    Label("All Playlists", systemImage: "square.grid.2x2").tag(MacSection.musicPage(key, .playlists))
+                    ForEach(playlists, id: \.id) { playlist in
+                        Label(playlist.title ?? "Playlist", systemImage: "music.note.list")
+                            .tag(MacSection.playlist(playlist.ratingKey ?? ""))
+                            .contextMenu { MacMusicItemMenu(item: playlist) }
                     }
                 }
             }
@@ -304,7 +362,9 @@ struct MacRootView: View {
     @ViewBuilder
     private var detail: some View {
         if section == .liveTV {
+            // The channel's picture is no scroll view: it stops above the bar.
             MacLiveTVView(isFullScreen: isFullScreen, query: searchQuery)
+                .padding(.bottom, hasBottomBar ? MacMusicBar.reservedHeight : 0)
         } else if section == .radio {
             MacRadioView(query: searchQuery)
         } else {
@@ -326,6 +386,18 @@ struct MacRootView: View {
             switch section ?? .home {
             case .home, .liveTV, .radio:
                 MacPlexHomeView()
+            case .musicPage(let key, let page):
+                if let library = plex.libraries.first(where: { $0.key == key }) {
+                    MacMusicLibraryView(library: library, page: page).id("\(key)|\(page.rawValue)")
+                } else {
+                    ContentUnavailableView("Library Not Found", systemImage: "rectangle.stack")
+                }
+            case .playlist(let key):
+                if let playlist = playlists.first(where: { $0.ratingKey == key }) {
+                    MacMusicAlbumView(item: playlist).id(key)
+                } else {
+                    ContentUnavailableView("Playlist Not Found", systemImage: "music.note.list")
+                }
             case .search:
                 MacPlexSearchView(query: $searchQuery)
             case .library(let key):

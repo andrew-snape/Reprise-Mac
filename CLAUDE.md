@@ -215,6 +215,15 @@ compiling as a plain SwiftPM target.
 - Music libraries (`type == "artist"`) are in `plex.libraries` for the sidebar
   but add no Home rows: anything reading `libraries` for video filters
   `isVideoLibrary`.
+- **Laid out as Apple Music**: each music library is its own sidebar section (Home, then
+  `MacMusicKind.sidebarPages`: Artists, Albums, Songs, Favourites, Downloaded, History, as
+  `MacSection.musicPage`), then Playlists (All Playlists and each by name, `MacSection.playlist`).
+  Home (`.library`) holds only the shelves; Compilations is a switch on the Albums page. Hiding
+  the library in Settings > Sidebar hides its section.
+- **The bottom bar floats** (`macFloatingBar`): a glass capsule overlaid on the detail column, so
+  it covers pushed pages and never the sidebar. Scroll views keep clear of it through
+  `.contentMargins(.bottom, …, for: .scrollContent)` on the split view (environment set on the
+  stack misses pushed pages); Live TV, whose picture is no scroll view, is padded instead.
 - `MacMusicPlayer` plays through `AVQueuePlayer`, with the next track already
   queued for gapless albums. It trusts Plex certificates through an
   `AVAssetResourceLoaderDelegate` (`MacMusicTrust`) answering with

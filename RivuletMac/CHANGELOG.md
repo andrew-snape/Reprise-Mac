@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.81
+
+- Music is laid out like Apple Music: each music library has its own sidebar section with Home, Artists, Albums, Songs, Favourites, Downloaded and History, and your playlists are listed by name beneath.
+- The player bar floats over the page as a glass capsule.
+- Music: Favourite and Dislike buttons in the bar, Now Playing and every right-click menu. They set five stars and one star, as Plexamp's love and thumbs down do.
+- The player's Details pane has a Colour section: primaries, transfer, matrix, levels, chroma and pixel format, and the Dolby Vision profile and level. The Video section says how a picture is deinterlaced.
+- Playback engine 7.73: Dolby Digital plays at full level on the software path, film on NTSC DVDs plays as film (no more judder), better deinterlacing, faster VC-1, and live channels that are still starting no longer flood the server.
+
 ## 0.80
 
 - Videos start on the audio track Plex has chosen for you (your language, or a pick made in any Plex app), so Dolby Vision titles no longer drop to HDR10 at the start.
