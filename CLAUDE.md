@@ -276,7 +276,9 @@ compiling as a plain SwiftPM target.
 - **Listening history and ratings**: `viewCount` and `lastViewedAt` are the profile's own
   plays (`MacMusicHistory.line`); `ratingCount` is every Plex listener's and draws the
   popularity bar. Stars are set through `/:/rate` and held for the session in
-  `MacMusicRatings`, since open lists are not refetched.
+  `MacMusicRatings`, since open lists are not refetched. Favourite and Dislike (bar, Now Playing,
+  item menus) are ratings too, as Plexamp's love and thumbs down: five stars and one star, a second
+  click clears. Any rating above three stars shows as a favourite, one star or less as a dislike.
 - **Release types**: an artist's albums are grouped by `MusicReleaseGroup`, read from Plex's
   `Format` / `Subformat` tags. Album lists usually omit the tags, so
   `MacPlexSession.releaseGroups` fetches each untagged album's own metadata (six at a time,

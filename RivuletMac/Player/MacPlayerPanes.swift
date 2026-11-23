@@ -298,7 +298,7 @@ private struct MacDetailsPane: View {
     private var streams: [PlexStream] { media?.Part?.first?.Stream ?? [] }
 
     private var sections: [DetailSection] {
-        [playbackSection, videoSection, audioSection, liveSection, fileSection].compactMap { $0 }
+        [playbackSection, videoSection, colourSection, audioSection, liveSection, fileSection].compactMap { $0 }
     }
 
     private var playbackSection: DetailSection {
@@ -320,8 +320,72 @@ private struct MacDetailsPane: View {
         if let depth = video.bitDepth { rows.append(Row(label: "Bit depth", value: "\(depth)-bit")) }
         if let range = Self.dynamicRange(video) { rows.append(Row(label: "Range", value: range)) }
         if let decoder = player.stats().videoDecoder { rows.append(Row(label: "Decoder", value: decoder)) }
+        if let deinterlace = player.stats().deinterlace { rows.append(Row(label: "Deinterlacing", value: deinterlace)) }
         if let upscale = player.upscaleSummary { rows.append(Row(label: "Upscaling", value: upscale)) }
         return DetailSection(title: "VIDEO", rows: rows)
+    }
+
+    /// Primaries, transfer and matrix as QuickTime's inspector shows them: the engine's view of
+    /// the stream playing, else what Plex read from the file.
+    private var colourSection: DetailSection? {
+        guard let video = streams.first(where: { $0.streamType == 1 }) else { return nil }
+        let engine = player.stats().colour
+        var rows: [Row] = []
+        func add(_ label: String, _ value: String?) {
+            if let value, !value.isEmpty { rows.append(Row(label: label, value: value)) }
+        }
+        add("Primaries", engine?.primaries ?? video.colorPrimaries.map(Self.primariesLabel))
+        add("Transfer", engine?.transfer ?? video.colorTrc.map(Self.transferLabel))
+        add("Matrix", engine?.matrix ?? video.colorSpace.map(Self.matrixLabel))
+        add("Levels", engine?.range ?? video.colorRange.map { $0 == "pc" ? "Full" : ($0 == "tv" ? "Limited" : $0) })
+        add("Chroma", video.chromaSubsampling)
+        add("Pixel format", engine?.pixelFormat)
+        add("Display buffer", engine?.displayBuffer)
+        if video.DOVIPresent == true { add("Dolby Vision", Self.dolbyVisionDetail(video)) }
+        return rows.isEmpty ? nil : DetailSection(title: "COLOUR", rows: rows)
+    }
+
+    /// "Profile 8.1 · Level 6 · Enhancement layer".
+    private static func dolbyVisionDetail(_ video: PlexStream) -> String? {
+        var parts: [String] = []
+        if let profile = video.DOVIProfile {
+            parts.append("Profile \(profile)" + (video.DOVIBLCompatID.map { ".\($0)" } ?? ""))
+        }
+        if let level = video.DOVILevel { parts.append("Level \(level)") }
+        if video.DOVIELPresent == true { parts.append("Enhancement layer") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private static func primariesLabel(_ name: String) -> String {
+        switch name {
+        case "bt709": "BT.709"
+        case "bt2020": "BT.2020"
+        case "smpte432": "Display P3"
+        case "smpte431": "DCI-P3"
+        case "bt470bg": "BT.601 PAL"
+        case "smpte170m": "BT.601 NTSC"
+        default: name
+        }
+    }
+
+    private static func transferLabel(_ name: String) -> String {
+        switch name {
+        case "bt709": "BT.709 (SDR)"
+        case "smpte2084": "PQ (SMPTE ST 2084)"
+        case "arib-std-b67": "HLG"
+        case "smpte170m", "bt601": "BT.601 (SDR)"
+        default: name
+        }
+    }
+
+    private static func matrixLabel(_ name: String) -> String {
+        switch name {
+        case "bt709": "BT.709"
+        case "bt2020nc": "BT.2020 NCL"
+        case "bt2020c": "BT.2020 CL"
+        case "bt470bg", "smpte170m": "BT.601"
+        default: name
+        }
     }
 
     private var audioSection: DetailSection? {

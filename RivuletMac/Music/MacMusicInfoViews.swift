@@ -95,6 +95,21 @@ final class MacMusicRatings {
         (stars(for: item) ?? 0) > PlexUserRating.favoriteStarThreshold
     }
 
+    /// One star or less, counting a rating changed this session.
+    func isDisliked(_ item: PlexMetadata) -> Bool {
+        PlexUserRating.isDisliked((stars(for: item) ?? 0) * PlexUserRating.starScale)
+    }
+
+    /// Five stars, or clears a favourite. A four-star item counts as a favourite, so it clears too.
+    func toggleFavourite(_ item: PlexMetadata, plex: MacPlexSession) {
+        set(isFavourite(item) ? nil : PlexUserRating.lovedStars, on: item, plex: plex)
+    }
+
+    /// One star, or clears a dislike.
+    func toggleDislike(_ item: PlexMetadata, plex: MacPlexSession) {
+        set(isDisliked(item) ? nil : PlexUserRating.dislikedStars, on: item, plex: plex)
+    }
+
     /// Shows the new rating at once and puts the old one back if Plex refuses it.
     func set(_ value: Int?, on item: PlexMetadata, plex: MacPlexSession) {
         guard let key = item.ratingKey else { return }
@@ -134,6 +149,56 @@ struct MacMusicStars: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Your Rating")
         .accessibilityValue(current > 0 ? "\(Int(current)) of 5" : "Not rated")
+    }
+}
+
+/// Favourite and Dislike, as in Apple Music: each sets a Plex rating (five
+/// stars, one star) or clears it, so Plexamp and the Favourites list agree.
+struct MacMusicLoveButtons: View {
+    let item: PlexMetadata
+    var spacing: CGFloat = 12
+    @Environment(MacPlexSession.self) private var plex
+
+    var body: some View {
+        let ratings = MacMusicRatings.shared
+        let favourite = ratings.isFavourite(item)
+        let disliked = ratings.isDisliked(item)
+        HStack(spacing: spacing) {
+            Button { ratings.toggleFavourite(item, plex: plex) } label: {
+                Image(systemName: favourite ? "star.fill" : "star")
+                    .foregroundStyle(favourite ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .accessibilityLabel(favourite ? "Undo Favourite" : "Favourite")
+            .help(favourite ? "Undo Favourite" : "Favourite")
+
+            Button { ratings.toggleDislike(item, plex: plex) } label: {
+                Image(systemName: disliked ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                    .foregroundStyle(disliked ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .accessibilityLabel(disliked ? "Undo Dislike" : "Dislike")
+            .help(disliked ? "Undo Dislike" : "Dislike")
+        }
+        .buttonStyle(.borderless)
+    }
+}
+
+/// Favourite and Dislike for a right-click menu.
+struct MacMusicLoveMenuItems: View {
+    let item: PlexMetadata
+    @Environment(MacPlexSession.self) private var plex
+
+    var body: some View {
+        let ratings = MacMusicRatings.shared
+        Button(ratings.isFavourite(item) ? "Undo Favourite" : "Favourite",
+               systemImage: ratings.isFavourite(item) ? "star.slash" : "star") {
+            ratings.toggleFavourite(item, plex: plex)
+        }
+        Button(ratings.isDisliked(item) ? "Undo Dislike" : "Dislike",
+               systemImage: ratings.isDisliked(item) ? "hand.thumbsdown.fill" : "hand.thumbsdown") {
+            ratings.toggleDislike(item, plex: plex)
+        }
     }
 }
 

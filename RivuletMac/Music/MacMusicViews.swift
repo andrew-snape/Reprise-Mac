@@ -54,7 +54,12 @@ struct MacMusicItemMenu: View {
             }
             .help("Up Next becomes songs that drift from what's playing to this one")
         }
-        if item.type != "playlist" { MacMusicRatingMenu(item: item) }
+        if item.type != "playlist" {
+            Section {
+                MacMusicLoveMenuItems(item: item)
+                MacMusicRatingMenu(item: item)
+            }
+        }
         if item.type == "track" || item.type == "album" {
             Section {
                 if let album = item.albumStub {

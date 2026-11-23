@@ -651,6 +651,21 @@ final class AetherPlayer {
         var framesPerSecond: Double?
         var droppedFrames: Int?
         var bufferSeconds: Double?
+        /// The playing stream's colour, as delivered (a transcode's, not the file's), in a viewer's names.
+        var colour: Colour?
+        /// "bwdif (GPU)", "Inverse telecine + bwdif (GPU)"; nil while frames go out as decoded.
+        var deinterlace: String?
+    }
+
+    struct Colour: Sendable {
+        var primaries: String?
+        var transfer: String?
+        var matrix: String?
+        /// Limited or Full.
+        var range: String?
+        var pixelFormat: String?
+        /// The display buffer the software decoder fills, "P010 (x420)"; nil on the native path.
+        var displayBuffer: String?
     }
 
     /// "720p → 1080p (ML)" while the upscale stage runs; nil when it never started.
@@ -672,8 +687,26 @@ final class AetherPlayer {
             averageBitrateMbps: telemetry?.averageBitrateMbps,
             framesPerSecond: telemetry?.observedFps,
             droppedFrames: telemetry?.droppedFrameCount,
-            bufferSeconds: telemetry?.forwardBufferSeconds
+            bufferSeconds: telemetry?.forwardBufferSeconds,
+            colour: colour(),
+            deinterlace: deinterlaceSummary()
         )
+    }
+
+    private func colour() -> Colour? {
+        let decoded = engine.decodedVideoFormat
+        // What the software decoder produced is the truth when there is one; else what the stream declared.
+        guard let format = decoded?.frame ?? engine.sourceVideoStreamFormat else { return nil }
+        return Colour(primaries: format.colorPrimariesLabel, transfer: format.transferLabel,
+                      matrix: format.matrixLabel, range: format.rangeLabel,
+                      pixelFormat: format.pixelFormat, displayBuffer: decoded?.pixelBufferLabel)
+    }
+
+    private func deinterlaceSummary() -> String? {
+        guard let deint = engine.decodedVideoFormat?.deinterlace else { return nil }
+        let name = deint.filter.split(separator: "_").first.map(String.init) ?? deint.filter
+        let chain = deint.inverseTelecine ? String(localized: "Inverse telecine + \(name)") : name
+        return chain + (deint.isHardware ? " (GPU)" : " (CPU)")
     }
 
     func setMuted(_ muted: Bool) {

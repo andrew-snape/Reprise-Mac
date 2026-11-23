@@ -8,9 +8,9 @@ import SwiftUI
 
 /// The player along the bottom of the window while music is queued, in one
 /// row: the cover flush to the edge, title, artist and album, the transport,
-/// the waveform, stars and volume. The cover and title open Now Playing; the
-/// artist and album go to their pages. A narrow window drops the stars, then
-/// the volume slider.
+/// the waveform, Favourite and Dislike, and volume. The cover and title open Now
+/// Playing; the artist and album go to their pages. A narrow window drops the
+/// volume slider.
 struct MacMusicBar: View {
     /// The bottom bar's height, shared by the radio bar so switching never jumps.
     static let height: CGFloat = 70
@@ -39,7 +39,7 @@ struct MacMusicBar: View {
                     .frame(minWidth: 140, maxWidth: .infinity)
 
                 HStack(spacing: 12) {
-                    if width >= 1180 { MacMusicStars(item: track) }
+                    MacMusicLoveButtons(item: track)
                     MacMusicVolume(showsSlider: width >= 1020).frame(width: width >= 1020 ? 120 : 18)
                     MacAirPlayButton(player: airPlayFromPlayer ? music.player.airPlayPlayer : nil,
                                      tint: .secondaryLabelColor)
@@ -111,6 +111,10 @@ struct MacMusicBar: View {
     private func menu(for track: PlexMetadata) -> some View {
         Button("Show Now Playing", systemImage: "music.note") { music.isNowPlayingShown = true }
         Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") { music.perform(.radio, on: track) }
+        Section {
+            MacMusicLoveMenuItems(item: track)
+            MacMusicRatingMenu(item: track)
+        }
         Section {
             if let album = track.albumStub {
                 Button("Go to Album", systemImage: "square.stack") { actions.open(album) }
@@ -340,7 +344,10 @@ struct MacMusicNowPlayingView: View {
                 }
                 .multilineTextAlignment(.center)
                 VStack(spacing: 4) {
-                    MacMusicStars(item: track)
+                    HStack(spacing: 18) {
+                        MacMusicLoveButtons(item: track, spacing: 18)
+                        MacMusicStars(item: track)
+                    }
                     if let history = track.historyLine {
                         Text(history).font(.caption).foregroundStyle(.tertiary)
                     }

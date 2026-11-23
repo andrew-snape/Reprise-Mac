@@ -29,6 +29,16 @@ enum PlexUserRating {
         (stars(userRating) ?? 0) > favoriteStarThreshold
     }
 
+    /// Favourite and Dislike set these, as Plexamp's love and thumbs down do.
+    static let lovedStars = 5
+    static let dislikedStars = 1
+
+    /// One star or less: what Dislike sets.
+    static func isDisliked(_ userRating: Double?) -> Bool {
+        guard let stars = stars(userRating) else { return false }
+        return stars <= Double(dislikedStars)
+    }
+
     /// The same rule as a library filter for `/all`: `>>=` is Plex's "greater
     /// than", sent pre-encoded. Plexamp's loved items (five stars) are among them.
     static let favoriteFilter = "userRating%3E%3E=\(Int(favoriteStarThreshold * starScale))"
